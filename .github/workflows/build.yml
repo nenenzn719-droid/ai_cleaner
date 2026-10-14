@@ -34,34 +34,20 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build with PyInstaller (macOS)
+      - name: Build macOS
         if: matrix.os == 'macos-latest'
         run: |
-          pyinstaller --noconfirm --clean --windowed \
-            --name "AI Cleaner" \
-            --icon icon.icns \
-            --add-data "index.html:." \
-            --collect-all pypdf \
-            --collect-all fpdf \
-            --collect-all pymupdf \
-            app_launcher.py
+          pyinstaller --noconfirm --clean --windowed --name "AI Cleaner" --icon icon.icns --add-data "index.html:." --collect-all pypdf --collect-all fpdf --collect-all pymupdf app_launcher.py
           zip -r -y ${{ matrix.asset_name }} "dist/AI Cleaner.app"
 
-      - name: Build with PyInstaller (Windows)
+      - name: Build Windows
         if: matrix.os == 'windows-latest'
-        shell: cmd
+        shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --windowed ^
-            --name "AI Cleaner" ^
-            --icon icon.ico ^
-            --add-data "index.html;." ^
-            --collect-all pypdf ^
-            --collect-all fpdf ^
-            --collect-all pymupdf ^
-            app_launcher.py
-          powershell Compress-Archive -Path "dist\AI Cleaner" -DestinationPath "${{ matrix.asset_name }}"
+          pyinstaller --noconfirm --clean --windowed --name "AI Cleaner" --icon icon.ico --add-data "index.html;." --collect-all pypdf --collect-all fpdf --collect-all pymupdf app_launcher.py
+          Compress-Archive -Path "dist/AI Cleaner/*" -DestinationPath "${{ matrix.asset_name }}"
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
