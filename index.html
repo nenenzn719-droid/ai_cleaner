@@ -1,0 +1,471 @@
+HTML = r"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Cleaner</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #0f1117; --card: #171a23; --card2: #1e222d; --border: #262b38;
+    --text: #e6e8ee; --muted: #8a91a4; --accent: #6d5dfc; --accent2: #8b7dff;
+    --good: #34d399; --warn: #fbbf24; --bad: #f87171;
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; padding: 32px 20px;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -.3px; }
+  h1 span { color: var(--accent2); }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text); padding: 10px 16px;
+    transition: .15s; font-weight: 500;
+  }
+  button:hover { background: #262b38; border-color: #39404f; }
+  button.primary {
+    background: linear-gradient(180deg, var(--accent2), var(--accent));
+    border-color: transparent; color: white; font-weight: 600;
+    box-shadow: 0 4px 14px rgba(109,93,252,.35);
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow);
+    min-height: 60vh;
+  }
+  .card-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 11px; letter-spacing: 1.2px; color: var(--muted);
+    text-transform: uppercase; font-weight: 700;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-head .tag { color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 12px; }
+  textarea {
+    flex: 1; width: 100%; border: 0; outline: 0; resize: none;
+    background: transparent; color: var(--text); padding: 16px;
+    font: 13.5px/1.6 "SF Mono", "JetBrains Mono", Consolas, monospace;
+  }
+  textarea::placeholder { color: #4a5162; }
+  .dropzone { padding: 6px; display: flex; flex-direction: column; flex: 1; }
+  .dropzone.dragover { background: rgba(109,93,252,.08); outline: 2px dashed var(--accent); outline-offset: -10px; }
+  .status {
+    margin-top: 18px; padding: 14px 18px; border-radius: 12px;
+    background: var(--card); border: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 22px; align-items: center;
+    font-size: 13.5px; color: var(--muted);
+  }
+  .status .item b { color: var(--text); font-weight: 600; }
+  .status .good b { color: var(--good); }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #232838; color: var(--muted); font-size: 12px; }
+  .pill.on { background: rgba(52,211,153,.15); color: var(--good); }
+  .pill.warn { background: rgba(251,191,36,.15); color: var(--warn); }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(10,12,18,.7);
+    display: none; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px); z-index: 100;
+  }
+  .overlay.on { display: flex; }
+  .spinner {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 3px solid rgba(109,93,252,.25); border-top-color: var(--accent2);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .overlay .msg { color: var(--text); margin-top: 16px; text-align: center; font-size: 14px; }
+  .check {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--muted); cursor: pointer;
+    font-size: 13.5px; user-select: none;
+  }
+  .check:hover { background: #262b38; color: var(--text); }
+  .check input { accent-color: var(--accent); }
+    
+  select.select {
+    font: inherit; cursor: pointer; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--card2);
+    color: var(--text); padding: 10px 12px; font-size: 13.5px;
+    appearance: none; -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 16px) center, calc(100% - 11px) center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 30px;
+  }
+  select.select:hover { background-color: #262b38; }
+  select.select:focus { outline: none; border-color: var(--accent); }
+
+  /* Панель оценки ИИ */
+  .ai-panel {
+    margin-top: 14px; padding: 18px 22px; border-radius: 14px;
+    background: var(--card); border: 1px solid var(--border);
+    display: none;
+  }
+  .ai-panel.on { display: block; }
+  .ai-head { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+  .ai-score {
+    font-size: 34px; font-weight: 700; letter-spacing: -.5px;
+  }
+  .ai-score.good { color: var(--good); }
+  .ai-score.mid { color: var(--warn); }
+  .ai-score.bad { color: var(--bad); }
+  .ai-label { color: var(--muted); font-size: 14px; }
+  .ai-bar {
+    height: 8px; border-radius: 4px; background: #232838; overflow: hidden;
+    margin: 12px 0 16px;
+  }
+  .ai-bar-fill {
+    height: 100%; width: 0; transition: width .4s;
+    background: linear-gradient(90deg, var(--good), var(--warn), var(--bad));
+    background-size: 300% 100%;
+  }
+  .ai-features { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 22px; font-size: 13px; color: var(--muted); }
+  .ai-features b { color: var(--text); }
+  .ai-notes { margin-top: 12px; font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .ai-notes li { margin-left: -20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>AI <span>Cleaner</span></h1>
+      <div class="sub">TXT · MD · JSON · CSV · HTML · PDF — очистка, проверка, сохранение</div>
+    </div>
+    <div class="actions">
+      <button id="openBtn">📂 Открыть файл</button>
+      <label class="check" title="Заменять кириллические двойники латиницы (а→a, о→o) — может ломать русский текст">
+        <input type="checkbox" id="aggressive"> агрессивно
+      </label>
+      <select id="fontPreset" class="select" title="Шрифт для перерисовки текста в PDF">
+        <option value="Auto">Шрифт: Auto</option>
+        <option value="Arial Unicode">Arial Unicode</option>
+        <option value="Arial">Arial</option>
+        <option value="Times New Roman">Times New Roman</option>
+        <option value="Verdana">Verdana</option>
+        <option value="Georgia">Georgia</option>
+      </select>
+      <select id="sizePreset" class="select" title="Размер шрифта в пт">
+        <option value="">Размер: Auto</option>
+        <option value="10">10 pt</option>
+        <option value="11">11 pt</option>
+        <option value="12">12 pt</option>
+        <option value="13">13 pt</option>
+        <option value="14">14 pt</option>
+      </select>
+      <button id="checkAiBtn" disabled>🔬 Проверить ИИ</button>
+      <button id="cleanBtn" class="primary">✨ Очистить</button>
+      <button id="copyBtn" disabled>📋 Копировать</button>
+      <button id="saveTxtBtn" disabled>💾 .txt</button>
+      <button id="savePdfBtn" disabled>📄 .pdf</button>
+      <button id="cleanPdfBtn" disabled title="Убрать невидимые маркеры из PDF, сохранив вёрстку">🧼 PDF со структурой</button>
+      <input type="file" id="fileInput" hidden accept=".txt,.md,.json,.csv,.html,.xml,.yaml,.yml,.log,.srt,.pdf">
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-head"><span>Исходный текст</span><span class="tag" id="beforeStats">—</span></div>
+      <div class="dropzone" id="dropL">
+        <textarea id="input" placeholder="Вставь текст, перетащи файл или открой PDF…"></textarea>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><span>Результат</span><span class="tag" id="afterStats">—</span></div>
+      <div class="dropzone" id="dropR">
+        <textarea id="output" placeholder="Здесь появится очищенный текст…"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="item">Статус: <b id="statusText">готов</b></div>
+    <div class="item">Невидимых: <b id="rInvis">0</b></div>
+    <div class="item">Типографики: <b id="rTypo">0</b></div>
+    <div class="item good">Сэкономлено: <b id="rSaved">0</b></div>
+    <div class="item"><span class="pill" id="pillPdf">pdf: —</span></div>
+    <div class="item"><span class="pill on">локально • офлайн</span></div>
+  </div>
+
+  <div class="ai-panel" id="aiPanel">
+    <div class="ai-head">
+      <div>
+        <div class="ai-score" id="aiScore">—</div>
+        <div class="ai-label" id="aiLabel">—</div>
+      </div>
+      <div style="flex:1; min-width: 220px;">
+        <div style="color:var(--muted); font-size:13px;">Вероятность «машинной манеры» (0–100)</div>
+        <div class="ai-bar"><div class="ai-bar-fill" id="aiBar"></div></div>
+      </div>
+    </div>
+    <div class="ai-features" id="aiFeatures"></div>
+    <ul class="ai-notes" id="aiNotes"></ul>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div>
+    <div class="spinner"></div>
+    <div class="msg" id="overlayMsg">Обработка…</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+// Базовый URL сервера — задаётся при загрузке окна (см. app_desktop.py)
+const SERVER = window.__SERVER_URL__ || "http://127.0.0.1:8765";
+const api = path => SERVER + path;
+const input = $("input"), output = $("output");
+let currentFileName = "";
+let originalPdfBytes = null;
+
+function showOverlay(msg) { $("overlayMsg").textContent = msg || "Обработка…"; $("overlay").classList.add("on"); }
+function hideOverlay() { $("overlay").classList.remove("on"); }
+
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x2000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const sub = bytes.subarray(i, i + chunk);
+    let s = "";
+    for (let j = 0; j < sub.length; j++) s += String.fromCharCode(sub[j]);
+    binary += s;
+  }
+  return btoa(binary);
+}
+
+function suggestName(ext) {
+  if (!currentFileName) return "clean" + ext;
+  const base = currentFileName.replace(/\.[^.]+$/, "");
+  return base + ".clean" + ext;
+}
+
+fetch(api("/ping")).then(r => r.json()).then(j => {
+  const p = $("pillPdf");
+  const bits = [];
+  if (j.pdf_read) bits.push("read");
+  if (j.pdf_write) bits.push("write");
+  if (j.pdf_clean) bits.push("clean");
+  if (bits.length === 3) { p.textContent = "pdf: ok"; p.classList.add("on"); }
+  else { p.textContent = "pdf: " + (bits.join("+") || "выкл"); p.classList.add("warn"); }
+});
+
+$("openBtn").onclick = () => $("fileInput").click();
+$("fileInput").onchange = e => { const f = e.target.files[0]; if (f) loadFile(f); };
+
+async function loadFile(file) {
+  currentFileName = file.name;
+  const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+  originalPdfBytes = null;
+  $("cleanPdfBtn").disabled = true;
+
+  if (!isPdf) {
+    const r = new FileReader();
+    r.onload = () => {
+      input.value = r.result;
+      $("statusText").textContent = "загружено: " + file.name;
+      $("checkAiBtn").disabled = false;
+    };
+    r.readAsText(file, "utf-8");
+    return;
+  }
+
+  showOverlay("Читаю PDF…");
+  try {
+    const buf = await file.arrayBuffer();
+    originalPdfBytes = buf;
+    $("cleanPdfBtn").disabled = false;
+
+    const b64 = arrayBufferToBase64(buf);
+    const res = await fetch(api("/extract-pdf"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ data: b64 })
+    });
+    const j = await res.json();
+    if (j.error) throw new Error(j.error);
+    if (!j.text || !j.text.trim()) {
+      $("statusText").textContent = `PDF загружен, но текста нет (скан?). Страниц: ${j.pages}`;
+      input.value = "";
+      $("checkAiBtn").disabled = true;
+    } else {
+      input.value = j.text;
+      $("statusText").textContent = `PDF загружен: ${file.name} · ${j.pages} стр. · ${j.text.length} символов`;
+      $("checkAiBtn").disabled = false;
+    }
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка PDF: " + e.message;
+    originalPdfBytes = null;
+    $("cleanPdfBtn").disabled = true;
+  } finally {
+    hideOverlay();
+  }
+}
+
+$("checkAiBtn").onclick = async () => {
+  const text = input.value;
+  if (!text) { $("statusText").textContent = "нечего проверять"; return; }
+  showOverlay("Анализирую текст…");
+  try {
+    const res = await fetch(api("/check-ai"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const score = data.score;
+    $("aiPanel").classList.add("on");
+    $("aiScore").textContent = score + " / 100";
+    $("aiScore").className = "ai-score " + (score <= 25 ? "good" : score <= 55 ? "mid" : "bad");
+    $("aiLabel").textContent = data.label;
+    $("aiBar").style.width = score + "%";
+
+    const f = data.features || {};
+    $("aiFeatures").innerHTML = Object.entries(f).map(([k, v]) =>
+      `<div>${k.replace(/_/g,' ')}: <b>${v}</b></div>`
+    ).join("");
+
+    $("aiNotes").innerHTML = (data.notes || []).map(n => `<li>${n}</li>`).join("");
+
+    $("statusText").textContent = `Анализ: ${score}/100 — ${data.label}`;
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка анализа: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
+
+$("cleanBtn").onclick = async () => {
+  const text = input.value;
+  if (!text) { $("statusText").textContent = "нечего чистить"; return; }
+  $("cleanBtn").disabled = true;
+  showOverlay("Чищу…");
+  try {
+    const res = await fetch(api("/clean"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text, aggressive: $("aggressive").checked })
+    });
+    const data = await res.json();
+    output.value = data.cleaned;
+    const r = data.report;
+    $("rInvis").textContent = r.invisible_removed;
+    $("rTypo").textContent = r.typography_removed;
+    $("rSaved").textContent = r.chars_saved;
+    $("beforeStats").textContent = r.chars_before + " символов";
+    $("afterStats").textContent = r.chars_after + " символов";
+    $("statusText").textContent = "готово";
+    $("copyBtn").disabled = false;
+    $("saveTxtBtn").disabled = false;
+    $("savePdfBtn").disabled = false;
+  } catch (e) {
+    $("statusText").textContent = "ошибка: " + e;
+  } finally {
+    $("cleanBtn").disabled = false;
+    hideOverlay();
+  }
+};
+
+$("copyBtn").onclick = async () => {
+  await navigator.clipboard.writeText(output.value);
+  $("statusText").textContent = "скопировано";
+};
+
+$("saveTxtBtn").onclick = () => {
+  const blob = new Blob([output.value], {type: "text/plain;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = suggestName(".txt");
+  a.click();
+  $("statusText").textContent = "сохранено .txt";
+};
+
+$("savePdfBtn").onclick = async () => {
+  showOverlay("Собираю PDF…");
+  try {
+    const res = await fetch(api("/build-pdf"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text: output.value })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({error: "ошибка"}));
+      throw new Error(err.error || "не удалось создать PDF");
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = suggestName(".pdf");
+    a.click();
+    $("statusText").textContent = "сохранено .pdf";
+  } catch (e) {
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
+
+$("cleanPdfBtn").onclick = async () => {
+  if (!originalPdfBytes) {
+    $("statusText").textContent = "сначала загрузи PDF";
+    return;
+  }
+  showOverlay("Чищу PDF со структурой…");
+  try {
+    const b64 = arrayBufferToBase64(originalPdfBytes);
+    const res = await fetch(api("/clean-pdf"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        data: b64,
+        aggressive: $("aggressive").checked,
+        font: $("fontPreset").value,
+        size: $("sizePreset").value ? parseFloat($("sizePreset").value) : null,
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({error: "ошибка"}));
+      throw new Error(err.error || "не удалось обработать PDF");
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = suggestName(".clean.pdf");
+    a.click();
+    $("statusText").textContent = "PDF очищен (структура сохранена)";
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
+
+["dropL","dropR"].forEach(id => {
+  const el = $(id);
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("dragover"); });
+  el.addEventListener("dragleave", () => el.classList.remove("dragover"));
+  el.addEventListener("drop", e => {
+    e.preventDefault(); el.classList.remove("dragover");
+    const f = e.dataTransfer.files[0]; if (f) loadFile(f);
+  });
+});
+</script>
+</body>
+</html>
