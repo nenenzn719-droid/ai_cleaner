@@ -1,11 +1,16 @@
-# AI Cleaner
-
-Локальное приложение для очистки текста и PDF от ИИ-маркеров.
-
 <div align="center">
 
 <img src="icon.png" alt="AI Cleaner" width="120" />
 
+# AI Cleaner
+
+**Убирает невидимые ИИ-маркеры из текста и PDF. Работает локально, без интернета.**
+
+[![Build](https://github.com/nenenzn719-droid/ai_cleaner/actions/workflows/build.yml/badge.svg)](https://github.com/nenenzn719-droid/ai_cleaner/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/nenenzn719-droid/ai_cleaner?color=6d5dfc&label=release)](https://github.com/nenenzn719-droid/ai_cleaner/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)]()
+
+### [Скачать последнюю версию](../../releases/latest)
 
 ## Что умеет
 
