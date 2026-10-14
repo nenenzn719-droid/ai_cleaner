@@ -1,0 +1,69 @@
+name: Build AI Cleaner
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact_name: AI-Cleaner-macOS
+            asset_name: AI-Cleaner-macOS.zip
+          - os: windows-latest
+            artifact_name: AI-Cleaner-Windows
+            asset_name: AI-Cleaner-Windows.zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          pyinstaller --noconfirm --clean --windowed \
+            --name "AI Cleaner" \
+            --icon icon.icns \
+            --add-data "index.html:." \
+            --collect-all pypdf \
+            --collect-all fpdf \
+            --collect-all pymupdf \
+            app_launcher.py
+          zip -r -y ${{ matrix.asset_name }} "dist/AI Cleaner.app"
+
+      - name: Build with PyInstaller (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: cmd
+        run: |
+          pyinstaller --noconfirm --clean --windowed ^
+            --name "AI Cleaner" ^
+            --icon icon.ico ^
+            --add-data "index.html;." ^
+            --collect-all pypdf ^
+            --collect-all fpdf ^
+            --collect-all pymupdf ^
+            app_launcher.py
+          powershell Compress-Archive -Path "dist\AI Cleaner" -DestinationPath "${{ matrix.asset_name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_name }}
+          if-no-files-found: error
