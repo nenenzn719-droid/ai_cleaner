@@ -35,6 +35,19 @@
   .llm-note span { flex: 1; }
   .llm-note.hidden { display: none; }
 
+  .ollama-setup {
+    display: none; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 18px; margin-bottom: 16px;
+    background: linear-gradient(180deg, rgba(109,93,252,.08), rgba(109,93,252,.04));
+    border: 1px solid rgba(109,93,252,.3);
+    border-radius: 12px;
+  }
+  .ollama-setup.on { display: flex; }
+  .ollama-setup .os-icon { font-size: 22px; }
+  .ollama-setup .os-text { flex: 1; min-width: 240px; }
+  .ollama-setup .os-text b { color: var(--text); display: block; margin-bottom: 4px; }
+  .ollama-setup .os-text span { color: var(--muted); font-size: 13px; }
+
   /* === Toolbar === */
   .toolbar {
     display: flex; justify-content: space-between; align-items: center;
@@ -329,6 +342,15 @@
   <b>ℹ️ Про LLM-функции:</b>
   <span>«🧠 Проверить (LLM)» — точная проверка через нейросеть (рекомендуется). «🤖 Перефраз (LLM)» — экспериментальная функция, качество зависит от модели. Для лучших результатов используйте qwen2.5:7b.</span>
   <button class="mini" id="llmNoteClose" title="Скрыть">✕</button>
+</div>
+<div class="ollama-setup" id="ollamaSetup">
+  <span class="os-icon" id="ollamaIcon">🧠</span>
+  <div class="os-text">
+    <b id="ollamaTitle">Нейросеть не установлена</b>
+    <span id="ollamaText">Установите Ollama, чтобы включить умную проверку ИИ.</span>
+  </div>
+  <button id="ollamaActionBtn" class="btn-primary">📥 Установить Ollama</button>
+  <button id="ollamaManualBtn" class="mini" title="Открыть ollama.com вручную">↗</button>
 </div>
 <div class="options-panel" id="optionsPanel">
   <label class="check" title="Заменять кириллические двойники латиницы — может ломать русский текст">
@@ -710,6 +732,122 @@ fetch(api("/ping")).then(r => r.json()).then(j => {
   p.title = "Установи Ollama: brew install ollama && ollama serve";
 }
 });
+
+// === Управление Ollama ===
+const ollamaSetup = document.getElementById("ollamaSetup");
+const ollamaActionBtn = document.getElementById("ollamaActionBtn");
+const ollamaManualBtn = document.getElementById("ollamaManualBtn");
+let ollamaState = { installed: false, running: false, model_ready: false };
+
+async function refreshOllamaStatus() {
+  try {
+    const res = await fetch(api("/ollama-status"));
+    const j = await res.json();
+    ollamaState = j;
+
+    // Обновляем бейдж
+    const pill = $("pillOllama");
+    if (j.installed && j.model_ready && j.running) {
+      pill.textContent = "ollama: " + j.model_name;
+      pill.className = "pill on";
+    } else if (j.installed) {
+      pill.textContent = "ollama: нет модели";
+      pill.className = "pill warn";
+    } else {
+      pill.textContent = "ollama: выкл";
+      pill.className = "pill warn";
+    }
+
+    // Панель настройки
+    if (!j.installed) {
+      ollamaSetup.classList.add("on");
+      $("ollamaIcon").textContent = "🧠";
+      $("ollamaTitle").textContent = "Нейросеть не установлена";
+      $("ollamaText").textContent =
+        "Установите Ollama, чтобы включить точную проверку ИИ и перефраз через нейросеть. " +
+        "Это бесплатно и работает офлайн.";
+      ollamaActionBtn.textContent = "📥 Установить Ollama";
+      ollamaActionBtn.dataset.action = "install";
+    } else if (!j.running) {
+      ollamaSetup.classList.add("on");
+      $("ollamaIcon").textContent = "⏸";
+      $("ollamaTitle").textContent = "Ollama установлена, но не запущена";
+      $("ollamaText").textContent =
+        "Запустите Ollama (иконка ламы в верхней панели macOS), чтобы использовать нейросеть.";
+      ollamaActionBtn.textContent = "🚀 Запустить Ollama";
+      ollamaActionBtn.dataset.action = "launch";
+    } else if (!j.model_ready) {
+      ollamaSetup.classList.add("on");
+      $("ollamaIcon").textContent = "📦";
+      $("ollamaTitle").textContent = `Нужна модель ${j.model_name}`;
+      $("ollamaText").textContent =
+        "Скачать модель (~2 ГБ). Это разово — потом всё работает офлайн.";
+      ollamaActionBtn.textContent = "📦 Скачать модель";
+      ollamaActionBtn.dataset.action = "pull";
+    } else {
+      ollamaSetup.classList.remove("on");
+    }
+
+    // Активация кнопок LLM
+    const ready = j.installed && j.running && j.model_ready;
+    if (ready) {
+      $("checkAiLlmBtn").disabled = false;
+      $("paraphraseLlmBtn").disabled = false;
+    } else {
+      $("checkAiLlmBtn").disabled = true;
+      $("paraphraseLlmBtn").disabled = true;
+    }
+  } catch (e) {
+    console.error("ollama status error:", e);
+  }
+}
+
+ollamaActionBtn.onclick = async () => {
+  const action = ollamaActionBtn.dataset.action;
+  ollamaActionBtn.disabled = true;
+
+  try {
+    if (action === "install") {
+      showOverlay("Скачиваю установщик Ollama…");
+      const res = await fetch(api("/install-ollama"), {method: "POST"});
+      const j = await res.json();
+      if (j.error) throw new Error(j.error);
+      hideOverlay();
+      $("statusText").textContent = j.message || "установщик запущен";
+      // Через 30 сек проверим, установилась ли
+      setTimeout(refreshOllamaStatus, 30000);
+    } else if (action === "launch") {
+      await fetch(api("/launch-ollama"), {method: "POST"});
+      $("statusText").textContent = "запускаю Ollama…";
+      setTimeout(refreshOllamaStatus, 3000);
+    } else if (action === "pull") {
+      showOverlay(`Скачиваю модель ${ollamaState.model_name}…\nЭто может занять 2–10 минут.`);
+      const res = await fetch(api("/pull-model"), {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ model: ollamaState.model_name })
+      });
+      const j = await res.json();
+      hideOverlay();
+      if (j.error) throw new Error(j.error);
+      $("statusText").textContent = "модель скачана";
+      refreshOllamaStatus();
+    }
+  } catch (e) {
+    hideOverlay();
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    ollamaActionBtn.disabled = false;
+  }
+};
+
+ollamaManualBtn.onclick = () => {
+  window.open("https://ollama.com/download", "_blank");
+};
+
+// Периодическая проверка статуса (каждые 10 секунд)
+refreshOllamaStatus();
+setInterval(refreshOllamaStatus, 10000);
 
 $("openBtn").onclick = () => $("fileInput").click();
 $("fileInput").onchange = e => { const f = e.target.files[0]; if (f) loadFile(f); };

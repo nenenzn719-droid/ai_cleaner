@@ -15,8 +15,12 @@ import threading
 import traceback
 import unicodedata
 import webbrowser
+import platform
+import shutil
+import subprocess
+import urllib.request
 from collections import Counter
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import difflib
 import html as _html
@@ -1105,6 +1109,19 @@ class Handler(BaseHTTPRequestHandler):
                 "ollama": HAS_OLLAMA,
                 "ollama_model": OLLAMA_MODEL if HAS_OLLAMA else None,
             })
+        elif self.path == "/ollama-status":
+            model = OLLAMA_MODEL
+            installed = check_ollama_installed()
+            running = check_ollama_running()
+            model_ready = check_model_installed(model) if installed and running else False
+            self._json(200, {
+                "installed": installed,
+                "running": running,
+                "model_ready": model_ready,
+                "model_name": model,
+                "platform": platform.system(),
+                "binary": _which_ollama() or None,
+            })    
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -1271,8 +1288,181 @@ class Handler(BaseHTTPRequestHandler):
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})
 
+        elif self.path == "/install-ollama":
+            try:
+                result = download_ollama_installer()
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/launch-ollama":
+            ok = launch_ollama_app()
+            self._json(200, {"launched": ok})
+
+        elif self.path == "/pull-model":
+            try:
+                data = json.loads(raw)
+                model = data.get("model", OLLAMA_MODEL)
+                result = pull_model(model)
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
         else:
             self._send(404, b"not found", "text/plain")
+
+# =============================================================
+#  УПРАВЛЕНИЕ OLLAMA (установка, запуск, скачивание модели)
+# =============================================================
+
+def _which_ollama() -> str | None:
+    """Возвращает путь к бинарнику ollama, если он установлен."""
+    # 1. Стандартный путь через PATH
+    p = shutil.which("ollama")
+    if p:
+        return p
+    # 2. macOS: встроен в Ollama.app
+    if platform.system() == "Darwin":
+        candidates = [
+            "/Applications/Ollama.app/Contents/Resources/ollama",
+            str(Path.home() / "Applications/Ollama.app/Contents/Resources/ollama"),
+        ]
+        for c in candidates:
+            if Path(c).exists():
+                return c
+    # 3. Windows: обычно уже в PATH, но проверим AppData
+    if platform.system() == "Windows":
+        candidate = Path.home() / "AppData/Local/Programs/Ollama/ollama.exe"
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def check_ollama_installed() -> bool:
+    return _which_ollama() is not None
+
+
+def check_ollama_running() -> bool:
+    """Ollama слушает на 127.0.0.1:11434."""
+    try:
+        with socket.create_connection(("127.0.0.1", 11434), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def check_model_installed(model: str) -> bool:
+    """Проверяет, что модель скачана, через `ollama list`."""
+    if not check_ollama_installed():
+        return False
+    binary = _which_ollama()
+    try:
+        result = subprocess.run(
+            [binary, "list"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return model in result.stdout
+    except Exception:
+        return False
+
+
+def launch_ollama_app() -> bool:
+    """Запускает Ollama на macOS или Windows."""
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            # Ollama.app запускается через open
+            for path in [
+                "/Applications/Ollama.app",
+                str(Path.home() / "Applications/Ollama.app"),
+            ]:
+                if Path(path).exists():
+                    subprocess.Popen(["open", "-a", path])
+                    return True
+            return False
+        elif system == "Windows":
+            binary = _which_ollama()
+            if binary:
+                subprocess.Popen([binary, "serve"],
+                                 creationflags=subprocess.CREATE_NO_WINDOW)
+                return True
+        return False
+    except Exception as e:
+        print(f"[ollama] launch failed: {e}")
+        return False
+
+
+def download_ollama_installer() -> dict:
+    """Скачивает установщик Ollama для текущей ОС и запускает его."""
+    system = platform.system()
+
+    if system == "Darwin":
+        url = "https://ollama.com/download/Ollama-darwin.zip"
+        filename = "Ollama-darwin.zip"
+    elif system == "Windows":
+        url = "https://ollama.com/download/OllamaSetup.exe"
+        filename = "OllamaSetup.exe"
+    else:
+        return {"error": f"ОС {system} не поддерживается автоматической установкой",
+                "manual_url": "https://ollama.com/download"}
+
+    downloads = Path.home() / "Downloads"
+    downloads.mkdir(exist_ok=True)
+    target = downloads / filename
+
+    print(f"[ollama] скачиваю {url} → {target}")
+    try:
+        urllib.request.urlretrieve(url, target)
+    except Exception as e:
+        return {"error": f"не удалось скачать: {e}", "manual_url": url}
+
+    size_mb = target.stat().st_size // 1024 // 1024
+    print(f"[ollama] скачано {size_mb} МБ")
+
+    # Сразу запускаем установку
+    try:
+        if system == "Darwin":
+            # Распаковываем через ditto — сохраняет всё правильно
+            subprocess.Popen(["open", str(target)])
+            message = ("Архив скачан в Загрузки и открыт. "
+                       "Распакуйте его и перетащите Ollama.app в Программы.")
+        elif system == "Windows":
+            subprocess.Popen([str(target)], shell=True)
+            message = "Запущен установщик. Следуйте инструкциям на экране."
+    except Exception as e:
+        return {"error": f"скачано, но не удалось запустить: {e}",
+                "path": str(target)}
+
+    return {
+        "status": "downloaded",
+        "path": str(target),
+        "size_mb": size_mb,
+        "message": message,
+    }
+
+
+def pull_model(model: str) -> dict:
+    """Скачивает модель через ollama pull. Блокирующий, 2–10 минут."""
+    binary = _which_ollama()
+    if not binary:
+        return {"error": "Ollama не установлена"}
+
+    print(f"[ollama] ollama pull {model}")
+    try:
+        result = subprocess.run(
+            [binary, "pull", model],
+            capture_output=True, text=True, timeout=1800,
+        )
+        if result.returncode != 0:
+            return {"error": result.stderr or "не удалось скачать модель"}
+        return {"status": "ok", "model": model}
+    except subprocess.TimeoutExpired:
+        return {"error": "таймаут (больше 30 минут)"}
+    except Exception as e:
+        return {"error": str(e)}
+
 
 
 def find_port(start=8765):
@@ -1289,7 +1479,7 @@ def find_port(start=8765):
 def main():
     port = find_port()
     url = f"http://127.0.0.1:{port}"
-    server = HTTPServer(("127.0.0.1", port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
     print("─" * 52)
     print("  ✨  AI Cleaner запущен")
