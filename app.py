@@ -550,7 +550,33 @@ ABSTRACT_STEMS = [
     "систем", "структур", "парадигм", "трансформац", "коммуникац",
     "сущност", "явлени", "взаимодейств",
 ]
+# Эмоционально-оценочная лексика (у людей её больше)
+EMOTION_WORDS = [
+    "нравится", "люблю", "ненавижу", "обожаю", "бесит", "раздражает",
+    "рад", "радостно", "грустно", "печально", "здорово", "классно",
+    "круто", "ужасно", "отвратительно", "прекрасно", "замечательно",
+    "интересно", "скучно", "страшно", "весело", "прикольно", "кайф",
+    "фигня", "жесть", "кошмар", "восторг", "уныние", "тоска",
+    "надеюсь", "боюсь", "переживаю", "волнуюсь", "радуюсь",
+    "сомневаюсь", "верю", "не верю", "думаю", "считаю", "кажется",
+]
 
+# Дискурсивные маркеры (структурные вводные — у ИИ плотнее)
+DISCOURSE_MARKERS = [
+    "во-первых", "во-вторых", "в-третьих", "в-четвёртых",
+    "с одной стороны", "с другой стороны",
+    "сначала", "затем", "потом", "далее", "итак",
+    "наконец", "в заключение", "подводя итог", "в итоге",
+    "прежде всего", "в первую очередь", "в конечном счёте",
+    "таким образом", "следовательно", "значит", "итак",
+]
+
+# Характерные для «живого» текста обороты
+CASUAL_MARKERS = [
+    "ну ", "вот ", "короче", "блин", "хз", "щас", "чё",
+    "вообще-то", "как-то", "типа", "вроде", "прикольно",
+    "классно", "жесть", "фигня", "капец", "блин",
+]
 
 
 def _sentences(text: str) -> list:
@@ -569,6 +595,99 @@ def _stdev(xs: list) -> float:
     var = sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
     return math.sqrt(var)
 
+def _entropy(text: str) -> float:
+    """Информационная энтропия по буквам (Шеннон)."""
+    if not text:
+        return 0.0
+    low = text.lower()
+    freq = Counter(c for c in low if c.isalpha())
+    total = sum(freq.values())
+    if total == 0:
+        return 0.0
+    ent = 0.0
+    for count in freq.values():
+        p = count / total
+        if p > 0:
+            ent -= p * math.log2(p)
+    return ent
+
+
+def _hapax_ratio(words: list) -> float:
+    """Доля слов, встречающихся ровно 1 раз. У людей выше."""
+    if not words:
+        return 0.0
+    counts = Counter(words)
+    hapax = sum(1 for c in counts.values() if c == 1)
+    return hapax / len(counts) if counts else 0.0
+
+
+def _trigram_repeat_ratio(words: list) -> float:
+    """Доля повторяющихся триграмм. У ИИ выше."""
+    if len(words) < 6:
+        return 0.0
+    trigrams = [tuple(words[i:i+3]) for i in range(len(words) - 2)]
+    counts = Counter(trigrams)
+    repeated = sum(c for c in counts.values() if c > 1)
+    return repeated / len(trigrams) if trigrams else 0.0
+
+
+def _punctuation_variety(text: str) -> float:
+    """Разнообразие используемых знаков препинания (0-1)."""
+    allowed = set(",.!?;:—-()«»\"'…")
+    used = set(c for c in text if c in allowed)
+    return len(used) / len(allowed)
+
+
+def _emotion_density(text: str) -> float:
+    """Плотность эмоциональной лексики на 100 слов."""
+    words = _words(text)
+    if not words:
+        return 0.0
+    low = text.lower()
+    cnt = sum(low.count(w) for w in EMOTION_WORDS)
+    return cnt / len(words) * 100
+
+
+def _discourse_density(text: str) -> float:
+    """Плотность дискурсивных маркеров на 100 слов."""
+    words = _words(text)
+    if not words:
+        return 0.0
+    low = text.lower()
+    cnt = sum(low.count(m) for m in DISCOURSE_MARKERS)
+    return cnt / len(words) * 100
+
+
+def _word_length_stdev(words: list) -> float:
+    """Стандартное отклонение длины слов."""
+    if len(words) < 3:
+        return 0.0
+    return _stdev([len(w) for w in words])
+
+
+def _sentence_opener_diversity(sentences: list) -> float:
+    """Разнообразие первых слов предложений."""
+    if len(sentences) < 3:
+        return 1.0
+    firsts = []
+    for s in sentences:
+        w = _words(s)
+        if w:
+            firsts.append(w[0])
+    if not firsts:
+        return 1.0
+    return len(set(firsts)) / len(firsts)
+
+
+def _casual_density(text: str) -> float:
+    """Плотность разговорных оборотов на 100 слов."""
+    words = _words(text)
+    if not words:
+        return 0.0
+    low = text.lower()
+    cnt = sum(low.count(c) for c in CASUAL_MARKERS)
+    return cnt / len(words) * 100
+
 def check_ai_score(text: str) -> dict:
     """Расширенная эвристическая оценка «ИИ-манеры». 0-100."""
     if not text or len(text) < 80:
@@ -585,6 +704,17 @@ def check_ai_score(text: str) -> dict:
     notes = []
     score = 0.0
     low = clean.lower()
+
+        # === НОВЫЕ МЕТРИКИ ===
+    hapax = _hapax_ratio(words)
+    tri_repeat = _trigram_repeat_ratio(words)
+    entropy = _entropy(clean)
+    punct_var = _punctuation_variety(clean)
+    emot = _emotion_density(clean)
+    discourse = _discourse_density(clean)
+    word_stdev = _word_length_stdev(words)
+    opener_div = _sentence_opener_diversity(sentences)
+    casual = _casual_density(clean)
 
     # ---- 1. Разброс длины предложений ----
     sent_lens = [len(_words(s)) for s in sentences]
@@ -729,6 +859,61 @@ def check_ai_score(text: str) -> dict:
         score -= min(10, emoji_count)
         notes.append(f"Эмодзи: −{min(10, emoji_count)}")
 
+        # ---- 14. Hapax ratio (у людей выше) ----
+    if hapax < 0.35:
+        score += 8; notes.append(f"Мало уникальных слов (hapax={hapax:.2f})")
+    elif hapax < 0.45:
+        score += 4
+
+    # ---- 15. Триграммы (повторы у ИИ) ----
+    if tri_repeat > 0.08:
+        score += 8; notes.append(f"Повторяющиеся триграммы ({tri_repeat:.0%})")
+    elif tri_repeat > 0.04:
+        score += 4
+
+    # ---- 16. Энтропия текста ----
+    # русский: у людей 4.5-5.0, у ИИ 4.0-4.3
+    if entropy < 4.2:
+        score += 6; notes.append(f"Низкая энтропия ({entropy:.2f}) — текст предсказуем")
+    elif entropy < 4.4:
+        score += 3
+
+    # ---- 17. Разнообразие пунктуации ----
+    if punct_var < 0.3:
+        score += 6; notes.append(f"Скудная пунктуация ({punct_var:.0%})")
+    elif punct_var < 0.45:
+        score += 3
+
+    # ---- 18. Эмоциональность (у ИИ мало) ----
+    if emot < 0.3 and len(words) > 100:
+        score += 6; notes.append("Почти нет эмоциональной лексики")
+    elif emot < 0.8 and len(words) > 100:
+        score += 3
+
+    # ---- 19. Дискурсивные маркеры (у ИИ плотнее) ----
+    if discourse > 1.5:
+        score += 8; notes.append(f"Много структурных маркеров ({discourse:.1f}/100 слов)")
+    elif discourse > 0.8:
+        score += 4
+
+    # ---- 20. Разброс длины слов ----
+    if word_stdev < 2.0:
+        score += 5; notes.append(f"Однородные слова (σ={word_stdev:.1f})")
+    elif word_stdev < 2.5:
+        score += 2
+
+    # ---- 21. Разнообразие начал ----
+    if opener_div < 0.5:
+        score += 7; notes.append(f"Однотипные начала ({opener_div:.0%})")
+    elif opener_div < 0.7:
+        score += 3
+
+    # ---- 22. Разговорные обороты (штраф) ----
+    if casual > 0.5:
+        penalty = min(10, int(casual * 3))
+        score -= penalty
+        notes.append(f"Разговорный стиль: −{penalty}")
+
     score = max(0, min(100, round(score)))
 
     if score <= 25:      label = "скорее человек"
@@ -747,11 +932,14 @@ def check_ai_score(text: str) -> dict:
             "разброс предл.": round(cv, 2),
             "ср. длина слова": round(avg_wl, 2),
             "разнообразие (Guiraud)": round(guiraud, 1),
-            "паттернов ИИ": len(pattern_hits),
-            "длинных тире": em_dashes,
-            "абстрактных": f"{abs_density:.0f}%",
-            "пассивных": passive,
-            "модальных": modal,
+            "hapax": round(hapax, 2),
+            "энтропия": round(entropy, 2),
+            "пунктуация": f"{punct_var:.0%}",
+            "эмоции": round(emot, 2),
+            "дискурс": round(discourse, 2),
+            "σ слов": round(word_stdev, 2),
+            "начал": f"{opener_div:.0%}",
+            "паттернов": len(pattern_hits),
         },
         "notes": notes,
     }
