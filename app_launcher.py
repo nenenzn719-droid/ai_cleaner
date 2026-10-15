@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AI Cleaner — лаунчер. Запускает сервер и открывает браузер.
-Используется как точка входа для .app.
+Работает одинаково на macOS и Windows.
 """
 import socket
 import sys
@@ -38,12 +38,10 @@ def main():
         print("❌ Сервер не поднялся.")
         sys.exit(1)
 
-    # небольшая пауза и открытие браузера
     time.sleep(0.3)
     webbrowser.open(url)
 
     try:
-        # держим процесс живым, пока пользователь не закроет
         while True:
             time.sleep(3600)
     except KeyboardInterrupt:

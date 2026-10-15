@@ -85,6 +85,137 @@ def clean_text(text: str, aggressive: bool = False) -> dict:
         },
     }
 
+# =============================================================
+#  ПЕРЕФРАЗ ШТАМПОВ (замена клише на живые обороты)
+# =============================================================
+
+STAMP_RULES = [
+    # «не просто X, а Y» → «X, и даже Y»
+    (r"\bне\s+просто\s+([^,.!?]{2,60}?),\s*а\s+", r"\1, и даже "),
+    (r"\bне\s+только\s+([^,.!?]{2,60}?),\s*но\s+и\s+", r"\1 и даже "),
+    (r"\bне\s+столько\s+([^,.!?]{2,60}?),\s*сколько\s+", r"не только \1, но и "),
+    (r"\bэто\s+не\s+([а-яё]+),\s*а\s+", r"это \1, и даже "),
+
+    # Клише-вводные
+    (r"\bоднако\b", "но"),
+    (r"\bболее\s+того\b", "к тому же"),
+    (r"\bтаким\s+образом\b", "значит"),
+    (r"\bв\s+свою\s+очередь\b", ""),
+    (r"\bв\s+конечном\s+счёте\b", "в итоге"),
+    (r"\bв\s+современном\s+мире\b", "сегодня"),
+    (r"\bна\s+сегодняшний\s+день\b", "сейчас"),
+    (r"\bважно\s+отметить,?\s*что\b", "замечу:"),
+    (r"\bстоит\s+отметить,?\s*что\b", "замечу:"),
+    (r"\bследует\s+отметить,?\s*что\b", "замечу:"),
+    (r"\bважно\s+подчеркнуть,?\s*что\b", "подчеркну:"),
+    (r"\bиграет\s+важную\s+роль\b", "сильно влияет"),
+    (r"\bиграет\s+ключевую\s+роль\b", "определяет"),
+    (r"\bиграет\s+значимую\s+роль\b", "заметно влияет"),
+    (r"\bпредставляет\s+собой\b", "это"),
+    (r"\bявляется\s+ключевым\b", "ключевой"),
+    (r"\bявляется\s+важным\b", "важный"),
+    (r"\bявляется\s+одним\s+из\b", "один из"),
+    (r"\bперестал\s+быть\s+просто\b", "перестал быть только"),
+    (r"\bпревратил(ся|ась|ось)\s+в\b", r"стал \1 в"),
+    (r"\bи\s+в\s+этом\s+его\s+сила\b", "и вот где он силён"),
+    (r"\bи\s+в\s+этом\s+его\s+слабость\b", "и вот где он слаб"),
+    (r"\bи\s+в\s+этом\s+его\s+предел\b", "и здесь его предел"),
+    (r"\bвыбор\s+остаётся\s+за\b", "решает"),
+    (r"\bименно\s+поэтому\b", "поэтому"),
+    (r"\bответ,?\s+вероятно,?\s+в\s+том,?\s*что\b", "скорее всего,"),
+    (r"\bответ,?\s+возможно,?\s+в\s+том,?\s*что\b", "возможно,"),
+    (r"\bбудущее\s+([а-яё]+)\s+зависит\s+не\s+столько\s+от\s+([^,.!?]{2,40}?),?\s*сколько\s+от\s+", r"\1 зависит не от \2, а от "),
+    (r"\bглавный\s+урок\b", "урок"),
+    (r"\bглавный\s+вывод\b", "вывод"),
+    (r"\bглавная\s+мысль\b", "мысль"),
+    (r"\bсегодня\s+же\b", "уже сегодня"),
+    (r"\bи\s+главное,?\b", "и вот что важно:"),
+
+    # === НОВЫЕ ПРАВИЛА — канцелярит ===
+    (r"\bданный\b", "этот"),
+    (r"\bданная\b", "эта"),
+    (r"\bданное\b", "это"),
+    (r"\bданные\b", "эти"),
+    (r"\bосуществля(ет|ют|ем|ешь)\b", r"дела\1"),
+    (r"\bосуществля(ть|ться|ется)\b", r"дела\1"),
+    (r"\bфункциониру(ет|ют|ешь)\b", r"работа\1"),
+    (r"\bфункционирова(ть|ние)\b", r"работа\1"),
+    (r"\bв\s+целях\b", "чтобы"),
+    (r"\bв\s+связи\s+с\s+тем,?\s*что\b", "потому что"),
+    (r"\bввиду\s+того,?\s*что\b", "так как"),
+    (r"\bв\s+области\b", "в"),
+    (r"\bпутём\b", "через"),
+    (r"\bс\s+помощью\b", "через"),
+    (r"\bв\s+результате\b", "из-за"),
+    (r"\bна\s+основании\b", "по"),
+    (r"\bв\s+соответствии\s+с\b", "по"),
+    (r"\bдля\s+того\s+чтобы\b", "чтобы"),
+    (r"\bв\s+качестве\b", "как"),
+    (r"\bв\s+течение\b", "за"),
+    (r"\bна\s+протяжении\b", "за"),
+    (r"\bв\s+процессе\b", "во время"),
+    (r"\bпо\s+отношению\s+к\b", "к"),
+    (r"\bпо\s+сравнению\s+с\b", "чем"),
+    (r"\bв\s+отличие\s+от\b", "не как"),
+    (r"\bпо\s+мнению\b", "считают"),
+    (r"\bс\s+точки\s+зрения\b", "по"),
+    (r"\bв\s+рамках\b", "в"),
+    (r"\bна\s+данный\s+момент\b", "сейчас"),
+    (r"\bв\s+настоящее\s+время\b", "сейчас"),
+    (r"\bимеет\s+место\s+быть\b", "происходит"),
+    (r"\bносит\s+характер\b", "похоже на"),
+
+    # Тире → запятая в правильном контексте
+    (r"\s+—\s+([а-яё])", r", \1"),
+    (r"(\S)\s+—\s+(\S)", r"\1 — \2"),
+]
+
+
+def _apply_case(source: str, replacement: str) -> str:
+    """Сохраняет регистр первого символа."""
+    if not replacement:
+        return replacement
+    if source and source[0].isupper() and replacement[0].islower():
+        return replacement[0].upper() + replacement[1:]
+    return replacement
+
+
+def paraphrase_stamps(text: str) -> dict:
+    """Заменяет штампы и клише на живые обороты. Возвращает текст и отчёт."""
+    original = text
+    applied = []
+
+    for pattern, replacement in STAMP_RULES:
+        # замена с сохранением регистра для первой буквы
+        def repl(m, _r=replacement):
+            result = m.expand(_r)
+            return _apply_case(m.group(0), result)
+
+        new_text, count = re.subn(pattern, repl, text, flags=re.IGNORECASE)
+        if count > 0:
+            applied.append({
+                "pattern": pattern,
+                "count": count,
+            })
+            text = new_text
+
+    # косметика: лишние пробелы, пробелы перед запятыми/точками, двойные заглавные
+    text = re.sub(r"\s+([,.!?;:])", r"\1", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    text = re.sub(r"^\s*,\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(r"([.!?])\s*([а-яё])", lambda m: m.group(1) + " " + m.group(2).upper(), text)
+
+    # предлоги/союзы с большой буквы внутри предложения — оставим как есть
+    # (это редкий случай, лучше не трогать)
+
+    return {
+        "paraphrased": text,
+        "replacements": len(applied),
+        "total_swaps": sum(a["count"] for a in applied),
+        "details": applied[:10],  # первые 10 для отчёта
+        "chars_before": len(original),
+        "chars_after": len(text),
+    }
 
 # =============================================================
 #  ПРОВЕРКА «ИИ-МАНЕРЫ» (эвристика, чистый Python)
@@ -295,6 +426,53 @@ def check_ai_score(text: str) -> dict:
             "абстрактных": f"{abs_density:.0f}%",
         },
         "notes": notes,
+    }
+
+def find_ai_sentences(text: str) -> dict:
+    """Возвращает текст с подсветкой предложений, наиболее похожих на ИИ.
+    Помечает их как [AI]...[/AI] для отображения в UI."""
+    sentences = _sentences(text)
+    if not sentences:
+        return {"text": text, "highlights": []}
+
+    # Паттерны, которые прямо указывают на ИИ
+    ai_patterns = [
+        r"не\s+просто\s+[^,.!?]{2,30},?\s+а\s+",
+        r"не\s+только\s+[^,.!?]{2,30},?\s+но\s+и\b",
+        r"не\s+столько\s+[^,.!?]{2,30},?\s+сколько\b",
+        r"\bважно\s+(отметить|подчеркнуть)\b",
+        r"\bиграет\s+(важную|ключевую|значимую)\s+роль\b",
+        r"\bв\s+современном\s+мире\b",
+        r"\bпредставляет\s+собой\b",
+        r"\bи\s+в\s+этом\s+(его|её|их)\b",
+        r"\bглавн[а-яё]+\s+(урок|вывод|мысль|идея)\b",
+        r"\bответ,?\s+(вероятно|возможно)\b",
+        r"\bбудущее\s+\S+\s+зависит\b",
+    ]
+
+    highlights = []
+    marked = []
+    for sent in sentences:
+        low = sent.lower()
+        hits = sum(1 for p in ai_patterns if re.search(p, low))
+        # длинные предложения с абстрактной лексикой — тоже маркер
+        words = _words(sent)
+        abstract = sum(1 for w in words if any(w.startswith(s) for s in ABSTRACT_STEMS))
+        abstract_ratio = abstract / max(1, len(words))
+
+        is_ai = hits > 0 or (len(words) > 15 and abstract_ratio > 0.15)
+        if is_ai:
+            marked.append(sent)
+            highlights.append({
+                "text": sent,
+                "patterns": hits,
+                "abstract": round(abstract_ratio, 2),
+            })
+
+    return {
+        "highlights": highlights,
+        "count": len(highlights),
+        "total_sentences": len(sentences),
     }
 
 
@@ -555,6 +733,15 @@ class Handler(BaseHTTPRequestHandler):
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})
 
+        elif self.path == "/highlight":
+            try:
+                data = json.loads(raw)
+                result = find_ai_sentences(data.get("text", ""))
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
         elif self.path == "/extract-pdf":
             try:
                 data = json.loads(raw)
@@ -588,6 +775,15 @@ class Handler(BaseHTTPRequestHandler):
                     size_override=data.get("size") or None,
                 )
                 self._send(200, result, "application/pdf")
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/paraphrase":
+            try:
+                data = json.loads(raw)
+                result = paraphrase_stamps(data.get("text", ""))
+                self._json(200, result)
             except Exception as e:
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})

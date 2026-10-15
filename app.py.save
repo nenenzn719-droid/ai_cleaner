@@ -1,0 +1,331 @@
+#!/usr/bin/env python3
+"""
+AI Cleaner — локальное веб-приложение для очистки текста от ИИ-маркеров.
+Запуск:  python app.py
+"""
+import json
+import re
+import socket
+import threading
+import unicodedata
+import webbrowser
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# ---------- Логика очистки ----------
+
+INVISIBLE = re.compile(
+    "[\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\u00ad\u034f\u061c"
+    "\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+    "\U000e0000-\U000e007f]"
+)
+
+LOOKALIKES = {
+    "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
+    "\u2013": "-", "\u2014": "-", "\u2212": "-",
+    "\u00a0": " ", "\u2026": "...",
+    "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M",
+    "Н": "H", "О": "O", "Р": "P", "С": "C", "Т": "T", "Х": "X",
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x",
+}
+LOOKUP = str.maketrans(LOOKALIKES)
+
+
+def analyze(text: str) -> dict:
+    return {
+        "invisible": len(INVISIBLE.findall(text)),
+        "typography": sum(1 for c in text if c in LOOKALIKES),
+        "length": len(text),
+    }
+
+
+def clean_text(text: str) -> dict:
+    before = analyze(text)
+    t = INVISIBLE.sub("", text)
+    t = unicodedata.normalize("NFKC", t)
+    t = t.translate(LOOKUP)
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r" *\n *", "\n", t)
+    t = t.strip()
+    after = analyze(t)
+    return {
+        "cleaned": t,
+        "report": {
+            "invisible_removed": before["invisible"] - after["invisible"],
+            "typography_removed": before["typography"] - after["typography"],
+            "chars_before": before["length"],
+            "chars_after": after["length"],
+            "chars_saved": before["length"] - after["length"],
+        },
+    }
+
+
+# ---------- HTML ----------
+
+HTML = r"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Cleaner</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #0f1117;
+    --card: #171a23;
+    --card2: #1e222d;
+    --border: #262b38;
+    --text: #e6e8ee;
+    --muted: #8a91a4;
+    --accent: #6d5dfc;
+    --accent2: #8b7dff;
+    --good: #34d399;
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh; padding: 32px 20px;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -.3px; }
+  h1 span { color: var(--accent2); }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card2); color: var(--text); padding: 10px 16px;
+    transition: .15s; font-weight: 500;
+  }
+  button:hover { background: #262b38; border-color: #39404f; }
+  button.primary {
+    background: linear-gradient(180deg, var(--accent2), var(--accent));
+    border-color: transparent; color: white; font-weight: 600;
+    box-shadow: 0 4px 14px rgba(109,93,252,.35);
+  }
+  button.primary:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow);
+    min-height: 60vh;
+  }
+  .card-head {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 11px; letter-spacing: 1.2px; color: var(--muted);
+    text-transform: uppercase; font-weight: 700;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-head .tag { color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 12px; }
+  textarea {
+    flex: 1; width: 100%; border: 0; outline: 0; resize: none;
+    background: transparent; color: var(--text); padding: 16px;
+    font: 13.5px/1.6 "SF Mono", "JetBrains Mono", Consolas, monospace;
+  }
+  textarea::placeholder { color: #4a5162; }
+  .dropzone { padding: 6px; }
+  .dropzone.dragover {
+    background: rgba(109,93,252,.08);
+    outline: 2px dashed var(--accent); outline-offset: -10px;
+  }
+  .status {
+    margin-top: 18px; padding: 14px 18px; border-radius: 12px;
+    background: var(--card); border: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; gap: 22px; align-items: center;
+    font-size: 13.5px; color: var(--muted);
+  }
+  .status .item b { color: var(--text); font-weight: 600; }
+  .status .good b { color: var(--good); }
+  .pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    background: #232838; color: var(--muted); font-size: 12px;
+  }
+  .pill.on { background: rgba(52,211,153,.15); color: var(--good); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>AI <span>Cleaner</span></h1>
+      <div class="sub">Удаляет невидимые Unicode-маркеры, «умную» типографику и гомоглифы</div>
+    </div>
+    <div class="actions">
+      <button id="openBtn">📂 Открыть файл</button>
+      <button id="cleanBtn" class="primary">✨ Очистить</button>
+      <button id="copyBtn" disabled>📋 Копировать</button>
+      <button id="saveBtn" disabled>💾 Сохранить</button>
+      <input type="file" id="fileInput" hidden>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-head"><span>Исходный текст</span><span class="tag" id="beforeStats">—</span></div>
+      <div class="dropzone" id="dropL">
+        <textarea id="input" placeholder="Вставь текст сюда или перетащи файл…"></textarea>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><span>Результат</span><span class="tag" id="afterStats">—</span></div>
+      <div class="dropzone" id="dropR">
+        <textarea id="output" placeholder="Здесь появится очищенный текст…"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="item">Статус: <b id="statusText">готов</b></div>
+    <div class="item">Удалено невидимых: <b id="rInvis">0</b></div>
+    <div class="item">Заменено типографики: <b id="rTypo">0</b></div>
+    <div class="item good">Сэкономлено символов: <b id="rSaved">0</b></div>
+    <div class="item"><span class="pill" id="pill">локально • офлайн</span></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const input = $("input"), output = $("output");
+
+$("openBtn").onclick = () => $("fileInput").click();
+$("fileInput").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => { input.value = r.result; $("statusText").textContent = "загружено: " + f.name; };
+  r.readAsText(f, "utf-8");
+};
+
+$("cleanBtn").onclick = async () => {
+  const text = input.value;
+  if (!text) { $("statusText").textContent = "нечего чистить"; return; }
+  $("cleanBtn").disabled = true;
+  $("statusText").textContent = "обработка…";
+  try {
+    const res = await fetch("/clean", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text})
+    });
+    const data = await res.json();
+    output.value = data.cleaned;
+    const r = data.report;
+    $("rInvis").textContent = r.invisible_removed;
+    $("rTypo").textContent = r.typography_removed;
+    $("rSaved").textContent = r.chars_saved;
+    $("beforeStats").textContent = r.chars_before + " символов";
+    $("afterStats").textContent = r.chars_after + " символов";
+    $("statusText").textContent = "готово";
+    $("copyBtn").disabled = false;
+    $("saveBtn").disabled = false;
+  } catch (e) {
+    $("statusText").textContent = "ошибка: " + e;
+  } finally {
+    $("cleanBtn").disabled = false;
+  }
+};
+
+$("copyBtn").onclick = async () => {
+  await navigator.clipboard.writeText(output.value);
+  $("statusText").textContent = "скопировано";
+};
+
+$("saveBtn").onclick = () => {
+  const blob = new Blob([output.value], {type: "text/plain;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "clean.txt";
+  a.click();
+  $("statusText").textContent = "сохранено";
+};
+
+// drag & drop на любую панель
+["dropL","dropR"].forEach(id => {
+  const el = $(id);
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("dragover"); });
+  el.addEventListener("dragleave", () => el.classList.remove("dragover"));
+  el.addEventListener("drop", e => {
+    e.preventDefault(); el.classList.remove("dragover");
+    const f = e.dataTransfer.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { input.value = r.result; $("statusText").textContent = "загружено: " + f.name; };
+    r.readAsText(f, "utf-8");
+  });
+});
+</script>
+</body>
+</html>
+"""
+
+
+# ---------- HTTP-сервер ----------
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass  # тихий режим
+
+    def _send(self, code, body, ctype="text/html; charset=utf-8"):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path in ("/", "/index.html"):
+            self._send(200, HTML.encode("utf-8"))
+        else:
+            self._send(404, b"not found", "text/plain")
+
+    def do_POST(self):
+        if self.path != "/clean":
+            self._send(404, b"not found", "text/plain")
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length)
+        try:
+            data = json.loads(raw)
+            result = clean_text(data.get("text", ""))
+        except Exception as e:
+            self._send(500, json.dumps({"error": str(e)}).encode("utf-8"),
+                       "application/json")
+            return
+        self._send(200, json.dumps(result, ensure_ascii=False).encode("utf-8"),
+                   "application/json; charset=utf-8")
+
+
+def find_port(start=8765):
+    for p in range(start, start + 50):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", p))
+                return p
+            except OSError:
+                continue
+    raise RuntimeError("не нашёл свободный порт")
+
+
+def main():
+    port = find_port()
+    url = f"http://127.0.0.1:{port}"
+    server = HTTPServer(("127.0.0.1", port), Handler)
+
+    print("─" * 50)
+    print(f"  ✨  AI Cleaner запущен")
+    print(f"  🌐  Открой в браузере:  {url}")
+    print(f"  🛑  Остановить: Ctrl+C")
+    print("─" * 50)
+
+    threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nОстановлено.")
+        server.shutdown()
+
+
+if __name__ == "__main__":
+    main()

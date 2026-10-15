@@ -28,6 +28,13 @@
     background: var(--card2); color: var(--text); padding: 10px 16px;
     transition: .15s; font-weight: 500;
   }
+  button.mini {
+  padding: 4px 10px; font-size: 14px; border-radius: 6px;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer; line-height: 1;
+}
+  button.mini:hover { background: #262b38; color: var(--text); }
+  button.mini:disabled { opacity: .3; cursor: not-allowed; }
   button:hover { background: #262b38; border-color: #39404f; }
   button.primary {
     background: linear-gradient(180deg, var(--accent2), var(--accent));
@@ -66,6 +73,39 @@
   }
   .status .item b { color: var(--text); font-weight: 600; }
   .status .good b { color: var(--good); }
+  .ai-highlights {
+  margin-top: 18px; padding: 16px 20px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 14px; display: none;
+}
+.ai-highlights.on { display: block; }
+.ai-hl-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px; color: var(--muted); font-size: 13px;
+}
+.ai-hl-head b { color: var(--text); font-size: 14px; }
+.ai-highlights ul {
+  list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: 320px; overflow-y: auto;
+}
+.ai-highlights li {
+  padding: 12px 14px;
+  background: rgba(251,191,36,.06);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  font-size: 13.5px; line-height: 1.55;
+  color: var(--text);
+}
+.ai-highlights li mark {
+  background: rgba(248,113,113,.22); color: #fca5a5;
+  padding: 1px 4px; border-radius: 3px;
+}
+.ai-highlights li .reason {
+  display: block; margin-top: 6px;
+  color: var(--muted); font-size: 12px;
+  font-family: "SF Mono", monospace;
+}
   .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #232838; color: var(--muted); font-size: 12px; }
   .pill.on { background: rgba(52,211,153,.15); color: var(--good); }
   .pill.warn { background: rgba(251,191,36,.15); color: var(--warn); }
@@ -166,6 +206,7 @@
       </select>
       <button id="checkAiBtn" disabled>🔬 Проверить ИИ</button>
       <button id="cleanBtn" class="primary">✨ Очистить</button>
+      <button id="paraphraseBtn" disabled title="Заменить штампы и клише на живые обороты">🔄 Перефразировать</button>
       <button id="copyBtn" disabled>📋 Копировать</button>
       <button id="saveTxtBtn" disabled>💾 .txt</button>
       <button id="savePdfBtn" disabled>📄 .pdf</button>
@@ -182,12 +223,26 @@
       </div>
     </div>
     <div class="card">
-      <div class="card-head"><span>Результат</span><span class="tag" id="afterStats">—</span></div>
+      <div class="card-head">
+  <span>Результат</span>
+  <span style="display:flex; gap:8px; align-items:center;">
+    <span class="tag" id="afterStats">—</span>
+    <button id="copyInlineBtn" class="mini" title="Копировать результат">📋</button>
+  </span>
+</div>
       <div class="dropzone" id="dropR">
         <textarea id="output" placeholder="Здесь появится очищенный текст…"></textarea>
       </div>
     </div>
   </div>
+  
+  <div class="ai-highlights" id="aiHighlights">
+  <div class="ai-hl-head">
+    <span><b>🤖 Подозрительные предложения</b></span>
+    <span id="aiHlStats">—</span>
+  </div>
+  <ul id="aiHlList"></ul>
+</div>
 
   <div class="status">
     <div class="item">Статус: <b id="statusText">готов</b></div>
@@ -223,6 +278,76 @@
 
 <script>
 const $ = id => document.getElementById(id);
+
+// Горячие клавиши
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod) return;
+
+  if (e.key === "o" && !e.shiftKey) {
+    e.preventDefault();
+    $("openBtn").click();
+  } else if (e.key === "s" && !e.shiftKey) {
+    e.preventDefault();
+    if (!$("saveTxtBtn").disabled) $("saveTxtBtn").click();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (!$("cleanBtn").disabled) $("cleanBtn").click();
+  } else if (e.key.toLowerCase() === "p" && e.shiftKey) {
+    e.preventDefault();
+    if (!$("paraphraseBtn").disabled) $("paraphraseBtn").click();
+  } else if (e.key.toLowerCase() === "k" && e.shiftKey) {
+    e.preventDefault();
+    if (!$("checkAiBtn").disabled) $("checkAiBtn").click();
+  }
+});
+
+// Подсветка ИИ-мест
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+async function showAiHighlights() {
+  const text = input.value;
+  const panel = document.getElementById("aiHighlights");
+  const list = document.getElementById("aiHlList");
+  const stats = document.getElementById("aiHlStats");
+  if (!panel || !list || !stats) return;
+
+  if (!text || text.length < 80) {
+    panel.classList.remove("on");
+    return;
+  }
+
+  try {
+    const res = await fetch(api("/highlight"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    if (!data.count) {
+      panel.classList.remove("on");
+      return;
+    }
+
+    stats.textContent = `${data.count} из ${data.total_sentences}`;
+    list.innerHTML = data.highlights.map(h => {
+      const reasons = [];
+      if (h.patterns > 0) reasons.push(`паттернов ИИ: ${h.patterns}`);
+      if (h.abstract > 0.15) reasons.push(`абстрактных слов: ${Math.round(h.abstract * 100)}%`);
+      return `<li>${escapeHtml(h.text)}<span class="reason">${reasons.join(" • ")}</span></li>`;
+    }).join("");
+    panel.classList.add("on");
+  } catch (e) {
+    console.error("highlight error:", e);
+    panel.classList.remove("on");
+  }
+}
 // Базовый URL сервера — задаётся при загрузке окна (см. app_desktop.py)
 const SERVER = window.__SERVER_URL__ || "http://127.0.0.1:8765";
 const api = path => SERVER + path;
@@ -245,6 +370,23 @@ function arrayBufferToBase64(buf) {
   }
   return btoa(binary);
 }
+
+// Кнопка «Копировать» внутри панели результата
+document.getElementById("copyInlineBtn").onclick = async function () {
+  const text = $("output").value;
+  if (!text) {
+    $("statusText").textContent = "нечего копировать";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    this.textContent = "✓";
+    $("statusText").textContent = "скопировано";
+    setTimeout(() => { this.textContent = "📋"; }, 1200);
+  } catch (e) {
+    $("statusText").textContent = "ошибка копирования: " + e.message;
+  }
+};
 
 function suggestName(ext) {
   if (!currentFileName) return "clean" + ext;
@@ -277,6 +419,7 @@ async function loadFile(file) {
       input.value = r.result;
       $("statusText").textContent = "загружено: " + file.name;
       $("checkAiBtn").disabled = false;
+      $("paraphraseBtn").disabled = false;
     };
     r.readAsText(file, "utf-8");
     return;
@@ -304,6 +447,7 @@ async function loadFile(file) {
       input.value = j.text;
       $("statusText").textContent = `PDF загружен: ${file.name} · ${j.pages} стр. · ${j.text.length} символов`;
       $("checkAiBtn").disabled = false;
+      $("paraphraseBtn").disabled = false;
     }
   } catch (e) {
     console.error(e);
@@ -348,6 +492,7 @@ $("checkAiBtn").onclick = async () => {
     $("statusText").textContent = "ошибка анализа: " + e.message;
   } finally {
     hideOverlay();
+    showAiHighlights();
   }
 };
 
@@ -378,6 +523,56 @@ $("cleanBtn").onclick = async () => {
     $("statusText").textContent = "ошибка: " + e;
   } finally {
     $("cleanBtn").disabled = false;
+    hideOverlay();
+  }
+};
+
+$("paraphraseBtn").onclick = async () => {
+  const text = output.value || input.value;
+  if (!text) { $("statusText").textContent = "нечего перефразировать"; return; }
+  $("paraphraseBtn").disabled = true;
+  showOverlay("Перефразирую…");
+  try {
+    const res = await fetch(api("/paraphrase"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    output.value = data.paraphrased;
+    $("statusText").textContent =
+      `Перефразировано: ${data.total_swaps} замен  •  ${data.replacements} правил  •  ` +
+      `${data.chars_before} → ${data.chars_after} символов`;
+    $("copyBtn").disabled = false;
+    $("saveTxtBtn").disabled = false;
+    $("savePdfBtn").disabled = false;
+    $("checkAiBtn").disabled = false;
+
+    // Автоматически проверить новый балл
+    const checkRes = await fetch(api("/check-ai"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text: data.paraphrased })
+    });
+    const check = await checkRes.json();
+    if (!check.error) {
+      $("aiPanel").classList.add("on");
+      $("aiScore").textContent = check.score + " / 100";
+      $("aiScore").className = "ai-score " + (check.score <= 25 ? "good" : check.score <= 55 ? "mid" : "bad");
+      $("aiLabel").textContent = check.label + " (после перефраза)";
+      $("aiBar").style.width = check.score + "%";
+      $("aiFeatures").innerHTML = Object.entries(check.features || {}).map(([k, v]) =>
+        `<div>${k.replace(/_/g,' ')}: <b>${v}</b></div>`
+      ).join("");
+      $("aiNotes").innerHTML = (check.notes || []).map(n => `<li>${n}</li>`).join("");
+      $("statusText").textContent += `  •  новый балл: ${check.score}`;
+    }
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    $("paraphraseBtn").disabled = false;
     hideOverlay();
   }
 };
