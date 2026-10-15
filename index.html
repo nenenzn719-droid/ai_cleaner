@@ -18,33 +18,105 @@
     min-height: 100vh; padding: 32px 20px;
   }
   .wrap { max-width: 1200px; margin: 0 auto; }
-  header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  header { margin-bottom: 20px; }
   h1 { font-size: 26px; margin: 0; letter-spacing: -.3px; }
   h1 span { color: var(--accent2); }
   .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
-  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  button {
-    font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--border);
-    background: var(--card2); color: var(--text); padding: 10px 16px;
-    transition: .15s; font-weight: 500;
+
+  /* === Toolbar === */
+  .toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
   }
-  button.mini {
-  padding: 4px 10px; font-size: 14px; border-radius: 6px;
-  background: transparent; border: 1px solid var(--border);
-  color: var(--muted); cursor: pointer; line-height: 1;
-}
-  button.mini:hover { background: #262b38; color: var(--text); }
-  button.mini:disabled { opacity: .3; cursor: not-allowed; }
-  button:hover { background: #262b38; border-color: #39404f; }
-  button.primary {
+  .tb-group { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tb-right { margin-left: auto; }
+
+  button {
+    font: inherit; cursor: pointer; border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card2); color: var(--text);
+    padding: 10px 16px; transition: .15s; font-weight: 500;
+    white-space: nowrap;
+  }
+  button:hover:not(:disabled) { background: #262b38; border-color: #39404f; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  button.btn-primary {
     background: linear-gradient(180deg, var(--accent2), var(--accent));
     border-color: transparent; color: white; font-weight: 600;
     box-shadow: 0 4px 14px rgba(109,93,252,.35);
   }
-  button.primary:hover { filter: brightness(1.08); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+  button.btn-accent {
+    background: linear-gradient(180deg, #34d399, #10b981);
+    border-color: transparent; color: #0b1a13; font-weight: 700;
+    box-shadow: 0 4px 14px rgba(52,211,153,.3);
+  }
+  button.btn-accent:hover:not(:disabled) { filter: brightness(1.08); }
+
+  button.icon-btn { padding: 10px 14px; font-size: 16px; }
+
+  /* === Dropdown «Сохранить» === */
+  .dropdown { position: relative; }
+  .dropdown-toggle { padding: 10px 16px; font-weight: 500; }
+  .dropdown-toggle.open { background: #262b38; border-color: var(--accent); }
+  .dropdown-menu {
+    position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 6px;
+    min-width: 230px; box-shadow: var(--shadow);
+    display: none; z-index: 50;
+  }
+  .dropdown-menu.open { display: block; }
+  .dropdown-menu button {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; text-align: left;
+    background: transparent; border: 0;
+    padding: 10px 12px; border-radius: 8px; font-size: 14px;
+  }
+  .dropdown-menu button:hover:not(:disabled) { background: #262b38; }
+  .dropdown-menu hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
+
+  /* === Опции === */
+  .options-panel {
+    display: none; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 18px; margin-bottom: 16px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .options-panel.on { display: flex; }
+  .opt-label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; }
+  .opt-hint { margin-left: auto; color: var(--muted); font-size: 12px; font-style: italic; }
+
+  .check {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted); font-size: 13.5px; cursor: pointer;
+  }
+  .check input { accent-color: var(--accent); }
+
+  select.select {
+    font: inherit; cursor: pointer; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card2);
+    color: var(--text); padding: 6px 10px; font-size: 13.5px;
+    appearance: none; -webkit-appearance: none;
+  }
+  select.select:hover { border-color: #39404f; }
+  select.select:focus { outline: none; border-color: var(--accent); }
+
+  button.mini {
+    padding: 4px 10px; font-size: 14px; border-radius: 6px;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer; line-height: 1;
+    opacity: .5;
+  }
+  button.mini:hover:not(:disabled) { background: #262b38; color: var(--text); }
+  button.mini.active { opacity: 1; }
+
+  /* === Сетка и карточки === */
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 14px;
     display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow);
@@ -55,16 +127,22 @@
     font-size: 11px; letter-spacing: 1.2px; color: var(--muted);
     text-transform: uppercase; font-weight: 700;
     display: flex; justify-content: space-between; align-items: center;
+    min-height: 48px;
   }
   .card-head .tag { color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 12px; }
+
   textarea {
     flex: 1; width: 100%; border: 0; outline: 0; resize: none;
     background: transparent; color: var(--text); padding: 16px;
     font: 13.5px/1.6 "SF Mono", "JetBrains Mono", Consolas, monospace;
+    min-height: 300px;
   }
   textarea::placeholder { color: #4a5162; }
+
   .dropzone { padding: 6px; display: flex; flex-direction: column; flex: 1; }
   .dropzone.dragover { background: rgba(109,93,252,.08); outline: 2px dashed var(--accent); outline-offset: -10px; }
+
+  /* === Статус === */
   .status {
     margin-top: 18px; padding: 14px 18px; border-radius: 12px;
     background: var(--card); border: 1px solid var(--border);
@@ -73,42 +151,14 @@
   }
   .status .item b { color: var(--text); font-weight: 600; }
   .status .good b { color: var(--good); }
-  .ai-highlights {
-  margin-top: 18px; padding: 16px 20px;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 14px; display: none;
-}
-.ai-highlights.on { display: block; }
-.ai-hl-head {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 14px; color: var(--muted); font-size: 13px;
-}
-.ai-hl-head b { color: var(--text); font-size: 14px; }
-.ai-highlights ul {
-  list-style: none; padding: 0; margin: 0;
-  display: flex; flex-direction: column; gap: 10px;
-  max-height: 320px; overflow-y: auto;
-}
-.ai-highlights li {
-  padding: 12px 14px;
-  background: rgba(251,191,36,.06);
-  border-left: 3px solid var(--warn);
-  border-radius: 8px;
-  font-size: 13.5px; line-height: 1.55;
-  color: var(--text);
-}
-.ai-highlights li mark {
-  background: rgba(248,113,113,.22); color: #fca5a5;
-  padding: 1px 4px; border-radius: 3px;
-}
-.ai-highlights li .reason {
-  display: block; margin-top: 6px;
-  color: var(--muted); font-size: 12px;
-  font-family: "SF Mono", monospace;
-}
-  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #232838; color: var(--muted); font-size: 12px; }
+  .pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    background: #232838; color: var(--muted); font-size: 12px;
+  }
   .pill.on { background: rgba(52,211,153,.15); color: var(--good); }
   .pill.warn { background: rgba(251,191,36,.15); color: var(--warn); }
+
+  /* === Overlay === */
   .overlay {
     position: fixed; inset: 0; background: rgba(10,12,18,.7);
     display: none; align-items: center; justify-content: center;
@@ -122,31 +172,8 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .overlay .msg { color: var(--text); margin-top: 16px; text-align: center; font-size: 14px; }
-  .check {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border);
-    background: var(--card2); color: var(--muted); cursor: pointer;
-    font-size: 13.5px; user-select: none;
-  }
-  .check:hover { background: #262b38; color: var(--text); }
-  .check input { accent-color: var(--accent); }
-    
-  select.select {
-    font: inherit; cursor: pointer; border-radius: 10px;
-    border: 1px solid var(--border); background: var(--card2);
-    color: var(--text); padding: 10px 12px; font-size: 13.5px;
-    appearance: none; -webkit-appearance: none;
-    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-                      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-    background-position: calc(100% - 16px) center, calc(100% - 11px) center;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat: no-repeat;
-    padding-right: 30px;
-  }
-  select.select:hover { background-color: #262b38; }
-  select.select:focus { outline: none; border-color: var(--accent); }
 
-  /* Панель оценки ИИ */
+  /* === AI-панель === */
   .ai-panel {
     margin-top: 14px; padding: 18px 22px; border-radius: 14px;
     background: var(--card); border: 1px solid var(--border);
@@ -154,9 +181,7 @@
   }
   .ai-panel.on { display: block; }
   .ai-head { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
-  .ai-score {
-    font-size: 34px; font-weight: 700; letter-spacing: -.5px;
-  }
+  .ai-score { font-size: 34px; font-weight: 700; letter-spacing: -.5px; }
   .ai-score.good { color: var(--good); }
   .ai-score.mid { color: var(--warn); }
   .ai-score.bad { color: var(--bad); }
@@ -174,46 +199,141 @@
   .ai-features b { color: var(--text); }
   .ai-notes { margin-top: 12px; font-size: 13px; color: var(--muted); line-height: 1.7; }
   .ai-notes li { margin-left: -20px; }
+
+  /* === AI-подсветка === */
+  .ai-highlights {
+    margin-top: 18px; padding: 16px 20px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; display: none;
+  }
+  .ai-highlights.on { display: block; }
+  .ai-hl-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; color: var(--muted); font-size: 13px;
+  }
+  .ai-hl-head b { color: var(--text); font-size: 14px; }
+  .ai-highlights ul {
+    list-style: none; padding: 0; margin: 0;
+    display: flex; flex-direction: column; gap: 10px;
+    max-height: 320px; overflow-y: auto;
+  }
+  .ai-highlights li {
+    padding: 12px 14px;
+    background: rgba(251,191,36,.06);
+    border-left: 3px solid var(--warn);
+    border-radius: 8px;
+    font-size: 13.5px; line-height: 1.55;
+    color: var(--text);
+  }
+  .ai-highlights li .reason {
+    display: block; margin-top: 6px;
+    color: var(--muted); font-size: 12px;
+    font-family: "SF Mono", monospace;
+  }
+
+  /* === Diff view === */
+  .diff-view {
+    margin-top: 18px; padding: 16px 20px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; display: none;
+  }
+  .diff-view.on { display: block; }
+  .diff-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; color: var(--muted); font-size: 13px;
+  }
+  .diff-head b { color: var(--text); font-size: 14px; }
+  .diff-stat { margin-right: 10px; font-family: "SF Mono", monospace; }
+  .diff-stat .del { color: #fca5a5; }
+  .diff-stat .add { color: #86efac; }
+  .diff-body {
+    max-height: 420px; overflow-y: auto;
+    font: 13px/1.65 "SF Mono", "JetBrains Mono", monospace;
+    background: #0b0d13; border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .diff-line {
+    padding: 2px 0; color: var(--text);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .diff-line.diff-del { background: rgba(248,113,113,.08); color: #fca5a5; }
+  .diff-line.diff-add { background: rgba(52,211,153,.08); color: #86efac; }
+  .diff-w-del {
+    background: rgba(248,113,113,.22); color: #fca5a5;
+    text-decoration: line-through; padding: 1px 3px; border-radius: 3px;
+  }
+  .diff-w-add {
+    background: rgba(52,211,153,.22); color: #86efac;
+    padding: 1px 3px; border-radius: 3px;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div>
-      <h1>AI <span>Cleaner</span></h1>
-      <div class="sub">TXT · MD · JSON · CSV · HTML · PDF — очистка, проверка, сохранение</div>
+  <div>
+    <h1>AI <span>Cleaner</span></h1>
+    <div class="sub">Очистка текста, PDF и Word — локально, без интернета</div>
+  </div>
+</header>
+
+<div class="toolbar">
+  <div class="tb-group">
+    <button id="openBtn" class="btn-primary">📂 Открыть файл</button>
+    <button id="cleanBtn" class="btn-accent">✨ Очистить</button>
+    <button id="paraphraseBtn" disabled title="Заменить штампы и клише">🔄 Перефразировать</button>
+    <button id="checkAiBtn" disabled title="Оценить «машинность» текста">🔬 Проверить ИИ</button>
+    <button id="diffBtn" disabled title="Сравнить исходник и результат">🔍 Сравнить</button>
+    <button id="batchBtn" title="Обработать всю папку с файлами">📁 Пакетно</button>
+  </div>
+
+  <div class="tb-group tb-right">
+    <div class="dropdown">
+      <button id="saveMenuBtn" class="dropdown-toggle">💾 Сохранить ▾</button>
+      <div class="dropdown-menu" id="saveMenu">
+        <button id="saveTxtBtn" disabled>📄 Как .txt</button>
+        <button id="savePdfBtn" disabled>📕 Как .pdf</button>
+        <button id="cleanDocxBtn" disabled>📘 Как .docx</button>
+        <button id="cleanPdfBtn" disabled>🧼 PDF со структурой</button>
+        <hr>
+        <button id="copyBtn" disabled>📋 Копировать в буфер</button>
+      </div>
     </div>
-    <div class="actions">
-      <button id="openBtn">📂 Открыть файл</button>
-      <label class="check" title="Заменять кириллические двойники латиницы (а→a, о→o) — может ломать русский текст">
-        <input type="checkbox" id="aggressive"> агрессивно
-      </label>
-      <select id="fontPreset" class="select" title="Шрифт для перерисовки текста в PDF">
-        <option value="Auto">Шрифт: Auto</option>
-        <option value="Arial Unicode">Arial Unicode</option>
-        <option value="Arial">Arial</option>
-        <option value="Times New Roman">Times New Roman</option>
-        <option value="Verdana">Verdana</option>
-        <option value="Georgia">Georgia</option>
-      </select>
-      <select id="sizePreset" class="select" title="Размер шрифта в пт">
-        <option value="">Размер: Auto</option>
-        <option value="10">10 pt</option>
-        <option value="11">11 pt</option>
-        <option value="12">12 pt</option>
-        <option value="13">13 pt</option>
-        <option value="14">14 pt</option>
-      </select>
-      <button id="checkAiBtn" disabled>🔬 Проверить ИИ</button>
-      <button id="cleanBtn" class="primary">✨ Очистить</button>
-      <button id="paraphraseBtn" disabled title="Заменить штампы и клише на живые обороты">🔄 Перефразировать</button>
-      <button id="copyBtn" disabled>📋 Копировать</button>
-      <button id="saveTxtBtn" disabled>💾 .txt</button>
-      <button id="savePdfBtn" disabled>📄 .pdf</button>
-      <button id="cleanPdfBtn" disabled title="Убрать невидимые маркеры из PDF, сохранив вёрстку">🧼 PDF со структурой</button>
-      <input type="file" id="fileInput" hidden accept=".txt,.md,.json,.csv,.html,.xml,.yaml,.yml,.log,.srt,.pdf">
-    </div>
-  </header>
+    <button id="optionsBtn" class="icon-btn" title="Настройки">⚙️</button>
+  </div>
+</div>
+
+<div class="options-panel" id="optionsPanel">
+  <label class="check" title="Заменять кириллические двойники латиницы — может ломать русский текст">
+    <input type="checkbox" id="aggressive"> агрессивный режим
+  </label>
+  <label class="opt-label">
+    Шрифт:
+    <select id="fontPreset" class="select">
+      <option value="Auto">Auto (из оригинала)</option>
+      <option value="Arial Unicode">Arial Unicode</option>
+      <option value="Arial">Arial</option>
+      <option value="Times New Roman">Times New Roman</option>
+      <option value="Verdana">Verdana</option>
+      <option value="Georgia">Georgia</option>
+    </select>
+  </label>
+  <label class="opt-label">
+    Размер:
+    <select id="sizePreset" class="select">
+      <option value="">Auto</option>
+      <option value="10">10 pt</option>
+      <option value="11">11 pt</option>
+      <option value="12">12 pt</option>
+      <option value="13">13 pt</option>
+      <option value="14">14 pt</option>
+    </select>
+  </label>
+  <span class="opt-hint">Шрифт и размер — только для «PDF со структурой»</span>
+</div>
+
+<input type="file" id="fileInput" hidden accept=".txt,.md,.json,.csv,.html,.xml,.yaml,.yml,.log,.srt,.pdf,.docx">
+<input type="file" id="batchInput" webkitdirectory directory multiple hidden>
 
   <div class="grid">
     <div class="card">
@@ -236,6 +356,16 @@
     </div>
   </div>
   
+<div class="diff-view" id="diffView">
+  <div class="diff-head">
+    <span><b>🔍 Сравнение «до/после»</b></span>
+    <span>
+      <span class="diff-stat" id="diffStats">—</span>
+      <button id="diffCloseBtn" class="mini" title="Скрыть">✕</button>
+    </span>
+  </div>
+  <div class="diff-body" id="diffBody"></div>
+</div>
   <div class="ai-highlights" id="aiHighlights">
   <div class="ai-hl-head">
     <span><b>🤖 Подозрительные предложения</b></span>
@@ -354,6 +484,7 @@ const api = path => SERVER + path;
 const input = $("input"), output = $("output");
 let currentFileName = "";
 let originalPdfBytes = null;
+let originalDocxBytes = null;
 
 function showOverlay(msg) { $("overlayMsg").textContent = msg || "Обработка…"; $("overlay").classList.add("on"); }
 function hideOverlay() { $("overlay").classList.remove("on"); }
@@ -388,6 +519,138 @@ document.getElementById("copyInlineBtn").onclick = async function () {
   }
 };
 
+// Открытие/закрытие меню «Сохранить»
+const saveMenuBtn = document.getElementById("saveMenuBtn");
+const saveMenu = document.getElementById("saveMenu");
+if (saveMenuBtn && saveMenu) {
+  saveMenuBtn.onclick = (e) => {
+    e.stopPropagation();
+    saveMenu.classList.toggle("open");
+    saveMenuBtn.classList.toggle("open");
+  };
+  document.addEventListener("click", (e) => {
+    if (!saveMenu.contains(e.target) && e.target !== saveMenuBtn) {
+      saveMenu.classList.remove("open");
+      saveMenuBtn.classList.remove("open");
+    }
+  });
+}
+
+// Панель «Опции»
+const optionsBtn = document.getElementById("optionsBtn");
+const optionsPanel = document.getElementById("optionsPanel");
+if (optionsBtn && optionsPanel) {
+  optionsBtn.onclick = () => {
+    optionsPanel.classList.toggle("on");
+    optionsBtn.classList.toggle("active");
+  };
+}
+
+// Diff-view
+$("diffBtn").onclick = async () => {
+  const before = input.value;
+  const after = output.value;
+  if (!before || !after) {
+    $("statusText").textContent = "нужны оба текста — сначала очисти или перефразируй";
+    return;
+  }
+  showOverlay("Считаю разницу…");
+  try {
+    const res = await fetch(api("/diff"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ before, after })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    $("diffBody").innerHTML = data.html || '<div class="diff-line">Тексты идентичны</div>';
+    $("diffStats").innerHTML =
+      `<span class="del">−${data.removed}</span> / <span class="add">+${data.added}</span>`;
+    $("diffView").classList.add("on");
+    $("diffView").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("statusText").textContent = "сравнение готово";
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
+
+// Пакетная обработка папки
+document.getElementById("batchBtn").onclick = () => {
+  document.getElementById("batchInput").click();
+};
+
+document.getElementById("batchInput").onchange = async (e) => {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+
+  const supported = files.filter(f => {
+    const ext = f.name.toLowerCase().split(".").pop();
+    return ["pdf","docx","txt","md","csv","json","html","htm","xml","yaml","yml","log","srt"]
+      .includes(ext);
+  });
+
+  if (!supported.length) {
+    $("statusText").textContent = "в папке нет поддерживаемых файлов";
+    e.target.value = "";
+    return;
+  }
+
+  // кодируем в base64
+  const encoded = [];
+  for (let i = 0; i < supported.length; i++) {
+    const f = supported[i];
+    showOverlay(`Читаю ${i + 1} / ${supported.length}: ${f.name}`);
+    const buf = await f.arrayBuffer();
+    // сохраняем относительный путь внутри выбранной папки
+    const path = f.webkitRelativePath || f.name;
+    encoded.push({ name: path, data: arrayBufferToBase64(buf) });
+  }
+
+  showOverlay(`Обрабатываю ${supported.length} файлов…`);
+  try {
+    const res = await fetch(api("/batch-clean"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        files: encoded,
+        aggressive: $("aggressive").checked
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({error: "ошибка"}));
+      throw new Error(err.error || "batch failed");
+    }
+    const data = await res.json();
+
+    // декодируем base64 → blob
+    const bin = atob(data.zip);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], {type: "application/zip"});
+
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ai-cleaner-batch.zip";
+    a.click();
+
+    $("statusText").textContent =
+      `Пакет готов: ${data.ok} ок, ${data.errors} ошибок, ${data.skipped} пропущено · ` +
+      `скачан ai-cleaner-batch.zip`;
+  } catch (err) {
+    console.error(err);
+    $("statusText").textContent = "ошибка пакета: " + err.message;
+  } finally {
+    hideOverlay();
+    e.target.value = ""; // сброс, чтобы можно было ту же папку выбрать снова
+  }
+};
+
+$("diffCloseBtn").onclick = () => $("diffView").classList.remove("on");
+
 function suggestName(ext) {
   if (!currentFileName) return "clean" + ext;
   const base = currentFileName.replace(/\.[^.]+$/, "");
@@ -410,6 +673,42 @@ $("fileInput").onchange = e => { const f = e.target.files[0]; if (f) loadFile(f)
 async function loadFile(file) {
   currentFileName = file.name;
   const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+  const isDocx = file.name.toLowerCase().endsWith(".docx");
+
+  // сброс docx-состояния
+  originalDocxBytes = null;
+  if ($("cleanDocxBtn")) $("cleanDocxBtn").disabled = true;
+
+  if (isDocx) {
+    showOverlay("Читаю Word…");
+    try {
+      const buf = await file.arrayBuffer();
+      originalDocxBytes = buf;
+      $("cleanDocxBtn").disabled = false;
+
+      const b64 = arrayBufferToBase64(buf);
+      const res = await fetch(api("/extract-docx"), {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ data: b64 })
+      });
+      const j = await res.json();
+      if (j.error) throw new Error(j.error);
+      input.value = j.text || "";
+      $("statusText").textContent =
+        `Word загружен: ${file.name} · ${(j.text || "").length} символов`;
+      $("checkAiBtn").disabled = false;
+      $("paraphraseBtn").disabled = false;
+    } catch (e) {
+      console.error(e);
+      $("statusText").textContent = "ошибка Word: " + e.message;
+      originalDocxBytes = null;
+      $("cleanDocxBtn").disabled = true;
+    } finally {
+      hideOverlay();
+    }
+    return;
+  }
   originalPdfBytes = null;
   $("cleanPdfBtn").disabled = true;
 
@@ -519,6 +818,7 @@ $("cleanBtn").onclick = async () => {
     $("copyBtn").disabled = false;
     $("saveTxtBtn").disabled = false;
     $("savePdfBtn").disabled = false;
+    $("diffBtn").disabled = false;
   } catch (e) {
     $("statusText").textContent = "ошибка: " + e;
   } finally {
@@ -547,6 +847,7 @@ $("paraphraseBtn").onclick = async () => {
     $("copyBtn").disabled = false;
     $("saveTxtBtn").disabled = false;
     $("savePdfBtn").disabled = false;
+    $("diffBtn").disabled = false;
     $("checkAiBtn").disabled = false;
 
     // Автоматически проверить новый балл
@@ -661,6 +962,39 @@ $("cleanPdfBtn").onclick = async () => {
     const f = e.dataTransfer.files[0]; if (f) loadFile(f);
   });
 });
+$("cleanDocxBtn").onclick = async () => {
+  if (!originalDocxBytes) {
+    $("statusText").textContent = "сначала загрузи .docx";
+    return;
+  }
+  showOverlay("Чищу Word со структурой…");
+  try {
+    const b64 = arrayBufferToBase64(originalDocxBytes);
+    const res = await fetch(api("/clean-docx"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        data: b64,
+        aggressive: $("aggressive").checked,
+      })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({error: "ошибка"}));
+      throw new Error(err.error || "не удалось обработать .docx");
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = suggestName(".clean.docx");
+    a.click();
+    $("statusText").textContent = "Word очищен (форматирование сохранено)";
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
 </script>
 </body>
 </html>

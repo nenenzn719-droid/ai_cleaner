@@ -9,6 +9,7 @@ import io
 import json
 import math
 import re
+import zipfile
 import socket
 import threading
 import traceback
@@ -17,6 +18,8 @@ import webbrowser
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+import difflib
+import html as _html
 
 # --- опциональные библиотеки ---
 from pypdf import PdfReader
@@ -27,6 +30,10 @@ HAS_FPDF = True
 
 import fitz  # PyMuPDF
 HAS_FITZ = True
+
+from docx import Document
+HAS_DOCX = True
+
 
 
 # =============================================================
@@ -215,6 +222,69 @@ def paraphrase_stamps(text: str) -> dict:
         "details": applied[:10],  # первые 10 для отчёта
         "chars_before": len(original),
         "chars_after": len(text),
+    }
+
+def diff_words_html(before: str, after: str) -> dict:
+    """Построчное сравнение: удалённое — красное зачёркнуто, добавленное — зелёное."""
+    if not before and not after:
+        return {"html": "", "removed": 0, "added": 0}
+
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+
+    removed_total = 0
+    added_total = 0
+    out_lines = []
+
+    matcher = difflib.SequenceMatcher(None, before_lines, after_lines)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            for line in before_lines[i1:i2]:
+                out_lines.append(f'<div class="diff-line">{_html.escape(line) or "&nbsp;"}</div>')
+        elif tag == "delete":
+            for line in before_lines[i1:i2]:
+                removed_total += len(line)
+                out_lines.append(f'<div class="diff-line diff-del">{_html.escape(line) or "&nbsp;"}</div>')
+        elif tag == "insert":
+            for line in after_lines[j1:j2]:
+                added_total += len(line)
+                out_lines.append(f'<div class="diff-line diff-add">{_html.escape(line) or "&nbsp;"}</div>')
+        elif tag == "replace":
+            # строим word-level diff для пары строк
+            b_lines = before_lines[i1:i2]
+            a_lines = after_lines[j1:j2]
+            max_n = max(len(b_lines), len(a_lines))
+            for k in range(max_n):
+                b = b_lines[k] if k < len(b_lines) else ""
+                a = a_lines[k] if k < len(a_lines) else ""
+                if b == a:
+                    out_lines.append(f'<div class="diff-line">{_html.escape(b) or "&nbsp;"}</div>')
+                    continue
+                # word-level
+                sm = difflib.SequenceMatcher(None, b.split(), a.split())
+                buf = []
+                for wt, wi1, wi2, wj1, wj2 in sm.get_opcodes():
+                    if wt == "equal":
+                        buf.append(_html.escape(" ".join(b.split()[wi1:wi2])))
+                    elif wt == "delete":
+                        removed_total += sum(len(w) for w in b.split()[wi1:wi2])
+                        buf.append(f'<span class="diff-w-del">{" ".join(_html.escape(w) for w in b.split()[wi1:wi2])}</span>')
+                    elif wt == "insert":
+                        added_total += sum(len(w) for w in a.split()[wj1:wj2])
+                        buf.append(f'<span class="diff-w-add">{" ".join(_html.escape(w) for w in a.split()[wj1:wj2])}</span>')
+                    elif wt == "replace":
+                        removed_total += sum(len(w) for w in b.split()[wi1:wi2])
+                        added_total += sum(len(w) for w in a.split()[wj1:wj2])
+                        if wi2 > wi1:
+                            buf.append(f'<span class="diff-w-del">{" ".join(_html.escape(w) for w in b.split()[wi1:wi2])}</span>')
+                        if wj2 > wj1:
+                            buf.append(f'<span class="diff-w-add">{" ".join(_html.escape(w) for w in a.split()[wj1:wj2])}</span>')
+                out_lines.append(f'<div class="diff-line">{" ".join(buf) or "&nbsp;"}</div>')
+
+    return {
+        "html": "\n".join(out_lines),
+        "removed": removed_total,
+        "added": added_total,
     }
 
 # =============================================================
@@ -667,6 +737,120 @@ HTML_PATH = Path(__file__).parent / "index.html"
 def load_html() -> bytes:
     return HTML_PATH.read_text(encoding="utf-8").encode("utf-8")
 
+def extract_docx_text(data: bytes) -> str:
+    """Извлекает текст из .docx, сохраняя порядок абзацев."""
+    if not HAS_DOCX:
+        raise RuntimeError("python-docx не установлен. Выполни: pip install python-docx")
+    doc = Document(io.BytesIO(data))
+    parts = []
+    for para in doc.paragraphs:
+        parts.append(para.text)
+    return "\n".join(parts)
+
+
+def clean_docx_preserve(data: bytes, aggressive: bool = False) -> bytes:
+    """Чистит .docx, сохраняя структуру: абзацы, стили, шрифты, таблицы."""
+    if not HAS_DOCX:
+        raise RuntimeError("python-docx не установлен. Выполни: pip install python-docx")
+
+    doc = Document(io.BytesIO(data))
+    touched = 0
+
+    def _clean(s):
+        t = INVISIBLE.sub("", s)
+        t = unicodedata.normalize("NFKC", t)
+        t = t.translate(TYPO_MAP)
+        if aggressive:
+            t = t.translate(LOOKALIKE_MAP)
+        return t
+
+    # обычные абзацы
+    for para in doc.paragraphs:
+        for run in para.runs:
+            original = run.text
+            cleaned = _clean(original)
+            if cleaned != original:
+                run.text = cleaned
+                touched += 1
+
+    # таблицы
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        original = run.text
+                        cleaned = _clean(original)
+                        if cleaned != original:
+                            run.text = cleaned
+                            touched += 1
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def build_docx(text: str) -> bytes:
+    """Создаёт новый .docx из текста."""
+    if not HAS_DOCX:
+        raise RuntimeError("python-docx не установлен. Выполни: pip install python-docx")
+    doc = Document()
+    for line in text.split("\n"):
+        doc.add_paragraph(line)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+TEXT_EXTS = {
+    ".txt", ".md", ".csv", ".json", ".html", ".htm",
+    ".xml", ".yaml", ".yml", ".log", ".srt", ".py", ".js", ".ts",
+}
+
+
+def batch_clean(files: list, aggressive: bool = False) -> tuple:
+    """files: [{name, data (base64)}].
+    Возвращает (zip_bytes, report)."""
+    out = io.BytesIO()
+    report = []
+
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in files:
+            name = item.get("name", "file")
+            try:
+                raw = base64.b64decode(item.get("data", ""))
+            except Exception as e:
+                report.append({"name": name, "status": "skip", "reason": f"base64: {e}"})
+                continue
+
+            ext = Path(name).suffix.lower()
+            try:
+                if ext == ".pdf":
+                    result = clean_pdf_preserve(raw, aggressive=aggressive)
+                    zf.writestr(f"clean/{name}", result)
+                    report.append({"name": name, "status": "ok", "type": "pdf"})
+
+                elif ext == ".docx":
+                    result = clean_docx_preserve(raw, aggressive=aggressive)
+                    zf.writestr(f"clean/{name}", result)
+                    report.append({"name": name, "status": "ok", "type": "docx"})
+
+                elif ext in TEXT_EXTS:
+                    text = raw.decode("utf-8", errors="replace")
+                    cleaned = clean_text(text, aggressive=aggressive)["cleaned"]
+                    zf.writestr(f"clean/{name}", cleaned.encode("utf-8"))
+                    report.append({"name": name, "status": "ok", "type": "text"})
+
+                else:
+                    report.append({"name": name, "status": "skip",
+                                   "reason": f"неподдерживаемый формат: {ext}"})
+            except Exception as e:
+                report.append({"name": name, "status": "error", "reason": str(e)})
+
+        zf.writestr("clean/_report.json",
+                    json.dumps(report, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    return out.getvalue(), report
+
 # =============================================================
 #  HTTP-СЕРВЕР
 # =============================================================
@@ -698,6 +882,7 @@ class Handler(BaseHTTPRequestHandler):
                 "pdf_read": HAS_PYPDF,
                 "pdf_write": HAS_FPDF,
                 "pdf_clean": HAS_FITZ,
+                "docx": HAS_DOCX,
             })
         else:
             self._send(404, b"not found", "text/plain")
@@ -779,11 +964,70 @@ class Handler(BaseHTTPRequestHandler):
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})
 
+        elif self.path == "/extract-docx":
+            try:
+                data = json.loads(raw)
+                docx_bytes = base64.b64decode(data["data"])
+                text = extract_docx_text(docx_bytes)
+                self._json(200, {"text": text})
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/clean-docx":
+            try:
+                data = json.loads(raw)
+                docx_bytes = base64.b64decode(data["data"])
+                result = clean_docx_preserve(
+                    docx_bytes,
+                    aggressive=bool(data.get("aggressive", False)),
+                )
+                self._send(200, result,
+                           "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
         elif self.path == "/paraphrase":
             try:
                 data = json.loads(raw)
                 result = paraphrase_stamps(data.get("text", ""))
                 self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/diff":
+            try:
+                data = json.loads(raw)
+                result = diff_words_html(
+                    data.get("before", ""),
+                    data.get("after", ""),
+                )
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/batch-clean":
+            try:
+                data = json.loads(raw)
+                files = data.get("files", [])
+                aggressive = bool(data.get("aggressive", False))
+                print(f"[batch] получено файлов: {len(files)}")
+                zip_bytes, report = batch_clean(files, aggressive)
+                print(f"[batch] zip: {len(zip_bytes)} байт, "
+                      f"ok={sum(1 for r in report if r['status']=='ok')}, "
+                      f"err={sum(1 for r in report if r['status']=='error')}, "
+                      f"skip={sum(1 for r in report if r['status']=='skip')}")
+                self._json(200, {
+                    "zip": base64.b64encode(zip_bytes).decode("ascii"),
+                    "report": report,
+                    "total": len(files),
+                    "ok": sum(1 for r in report if r["status"] == "ok"),
+                    "errors": sum(1 for r in report if r["status"] == "error"),
+                    "skipped": sum(1 for r in report if r["status"] == "skip"),
+                })
             except Exception as e:
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})
