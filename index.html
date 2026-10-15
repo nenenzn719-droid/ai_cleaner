@@ -304,6 +304,35 @@
     height: 8px; border-radius: 4px; background: #232838; overflow: hidden;
     margin: 12px 0 16px;
   }
+
+  .editor-wrap {
+    position: relative; flex: 1; display: flex;
+    overflow: hidden;
+  }
+  .highlight-layer {
+    position: absolute; inset: 0;
+    padding: 16px;
+    font: 13.5px/1.6 "SF Mono", "JetBrains Mono", Consolas, monospace;
+    color: transparent;
+    pointer-events: none;
+    white-space: pre-wrap; word-wrap: break-word;
+    overflow: hidden;
+    z-index: 1;
+  }
+  .highlight-layer mark {
+    background: rgba(251,191,36,.25);
+    color: transparent;
+    border-radius: 3px;
+    padding: 1px 0;
+  }
+  .highlight-layer mark.critical {
+    background: rgba(248,113,113,.3);
+  }
+  .editor-wrap textarea {
+    position: relative; z-index: 2;
+    background: transparent;
+  }
+
   .ai-bar-fill {
     height: 100%; width: 0; transition: width .4s;
     background: linear-gradient(90deg, var(--good), var(--warn), var(--bad));
@@ -313,6 +342,64 @@
   .ai-features b { color: var(--text); }
   .ai-notes { margin-top: 12px; font-size: 13px; color: var(--muted); line-height: 1.7; }
   .ai-notes li { margin-left: -20px; }
+
+    .history-panel {
+    display: none; padding: 16px 20px; margin-bottom: 16px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+  .history-panel.on { display: block; }
+  .history-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; color: var(--muted); font-size: 13px;
+  }
+  .history-head b { color: var(--text); font-size: 14px; }
+  .history-list {
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: 320px; overflow-y: auto;
+  }
+  .history-item {
+    padding: 10px 14px; background: var(--card2);
+    border: 1px solid var(--border); border-radius: 10px;
+    cursor: pointer; transition: .15s;
+    font-size: 13px;
+  }
+  .history-item:hover {
+    background: #262b38; border-color: var(--accent);
+  }
+  body.light .history-item:hover { background: #e9ebf0; }
+  .history-item .hi-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 4px;
+  }
+  .history-item .hi-name { color: var(--text); font-weight: 600; }
+  .history-item .hi-time { color: var(--muted); font-size: 11.5px; }
+  .history-item .hi-meta { color: var(--muted); font-size: 12px; }
+  .history-item .hi-score {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 11.5px; margin-left: 6px;
+  }
+  .history-item .hi-score.good { background: rgba(52,211,153,.15); color: var(--good); }
+  .history-item .hi-score.mid  { background: rgba(251,191,36,.15); color: var(--warn); }
+  .history-item .hi-score.bad  { background: rgba(248,113,113,.15); color: var(--bad); }
+
+  /* Прогресс-бар в правой панели */
+  .output-progress {
+    height: 3px; background: #232838; overflow: hidden; display: none;
+  }
+  .output-progress.on { display: block; }
+  .output-progress-fill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--good), var(--accent));
+    transition: width .3s;
+  }
+
+  /* Word count */
+  .word-count {
+    color: var(--muted); font-size: 11px;
+    font-family: "SF Mono", monospace;
+    margin-left: 8px;
+  }
 
   /* === AI-подсветка === */
   .ai-highlights {
@@ -395,6 +482,16 @@
   <button id="updateNowBtn" class="btn-primary">Скачать</button>
   <button id="updateCloseBtn" class="mini">✕</button>
 </div>
+<div class="history-panel" id="historyPanel">
+  <div class="history-head">
+    <span><b>📜 История операций</b></span>
+    <span>
+      <button id="clearHistoryBtn" class="mini" title="Очистить">🗑</button>
+      <button id="closeHistoryBtn" class="mini" title="Закрыть">✕</button>
+    </span>
+  </div>
+  <div class="history-list" id="historyList"></div>
+</div>
 <div class="toolbar">
   <div class="tb-group">
     <button id="openBtn" class="btn-primary">📂 Открыть файл</button>
@@ -419,6 +516,7 @@
         <button id="copyBtn" disabled>📋 Копировать в буфер</button>
       </div>
     </div>
+    <button id="historyBtn" class="icon-btn" title="История операций">📜</button>
     <button id="themeBtn" class="icon-btn" title="Светлая/тёмная тема">🌙</button>
     <button id="optionsBtn" class="icon-btn" title="Настройки">⚙️</button>
   </div>
@@ -476,9 +574,18 @@
 
   <div class="grid">
     <div class="card">
-      <div class="card-head"><span>Исходный текст</span><span class="tag" id="beforeStats">—</span></div>
+            <div class="card-head">
+  <span>Исходный текст</span>
+  <span style="display:flex; gap:8px; align-items:center;">
+    <span class="tag" id="beforeStats">—</span>
+    <span class="word-count" id="inputCount"></span>
+  </span>
+</div>
       <div class="dropzone" id="dropL">
-        <textarea id="input" placeholder="Вставь текст, перетащи файл или открой PDF…"></textarea>
+        <div class="editor-wrap">
+          <div class="highlight-layer" id="hlLayer"></div>
+          <textarea id="input" placeholder="Вставь текст, перетащи файл или открой PDF…"></textarea>
+        </div>
       </div>
     </div>
     <div class="card">
@@ -486,8 +593,12 @@
   <span>Результат</span>
   <span style="display:flex; gap:8px; align-items:center;">
     <span class="tag" id="afterStats">—</span>
+    <span class="word-count" id="outputCount"></span>
     <button id="copyInlineBtn" class="mini" title="Копировать результат">📋</button>
   </span>
+</div>
+<div class="output-progress" id="outputProgress">
+  <div class="output-progress-fill" id="outputProgressFill"></div>
 </div>
       <div class="dropzone" id="dropR">
         <textarea id="output" placeholder="Здесь появится очищенный текст…"></textarea>
@@ -567,6 +678,33 @@
 
 <script>
 const $ = id => document.getElementById(id);
+
+// === Все переменные — в начале ===
+const SERVER = window.__SERVER_URL__ || "http://127.0.0.1:8765";
+const api = path => SERVER + path;
+const input = $("input"), output = $("output");
+let currentFileName = "";
+let originalPdfBytes = null;
+let originalDocxBytes = null;
+const hlLayer = document.getElementById("hlLayer");
+let highlightTimer = null;
+const intensityInput = document.getElementById("llmIntensity");
+const saveMenuBtn = document.getElementById("saveMenuBtn");
+const saveMenu = document.getElementById("saveMenu");
+const optionsBtn = document.getElementById("optionsBtn");
+const optionsPanel = document.getElementById("optionsPanel");
+const llmToast = document.getElementById("llmToast");
+const llmToastBar = document.getElementById("llmToastBar");
+const llmToastProgress = document.getElementById("llmToastProgress");
+const llmToastTime = document.getElementById("llmToastTime");
+const llmToastTitle = document.getElementById("llmToastTitle");
+let paraphraseAbort = null;
+let llmToastStart = 0;
+let llmToastTimer = null;
+const historyPanel = document.getElementById("historyPanel");
+const historyList = document.getElementById("historyList");
+const historyBtn = document.getElementById("historyBtn");
+
 // === Тема ===
 function applyTheme(theme) {
   if (theme === "light") {
@@ -643,7 +781,6 @@ document.getElementById("updateCloseBtn").onclick = () => {
 };
 
 // === Слайдер интенсивности ===
-const intensityInput = document.getElementById("llmIntensity");
 if (intensityInput) {
   intensityInput.oninput = e => {
     document.getElementById("llmIntensityVal").textContent = e.target.value;
@@ -686,6 +823,70 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// === Подсветка ИИ-штампов прямо в textarea ===
+async function updateHighlights() {
+  const text = input.value;
+  if (!text || text.length < 20) {
+    hlLayer.innerHTML = "";
+    return;
+  }
+
+  try {
+    const res = await fetch(api("/highlight-phrases"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) return;
+
+    // строим HTML с подсветкой
+    let html = "";
+    let pos = 0;
+    for (const p of data.phrases) {
+      html += escapeHtml(text.slice(pos, p.start));
+      const cls = p.label === "длинное тире" ? "critical" : "";
+      html += `<mark class="${cls}" title="${escapeHtml(p.label)}">${escapeHtml(p.text)}</mark>`;
+      pos = p.end;
+    }
+    html += escapeHtml(text.slice(pos));
+
+    // важно: сохранить переводы строк
+    hlLayer.innerHTML = html;
+    syncScroll();
+  } catch (e) {
+    console.error("highlight error:", e);
+  }
+}
+
+function syncScroll() {
+  hlLayer.scrollTop = input.scrollTop;
+  hlLayer.scrollLeft = input.scrollLeft;
+}
+
+input.addEventListener("scroll", syncScroll);
+input.addEventListener("input", () => {
+  clearTimeout(highlightTimer);
+  highlightTimer = setTimeout(updateHighlights, 300);
+  updateWordCount();
+});
+
+function updateWordCount() {
+  const t = input.value;
+  const words = (t.match(/[А-Яа-яЁёA-Za-z\-]+/g) || []).length;
+  const chars = t.length;
+  document.getElementById("inputCount").textContent =
+    words ? `${words} сл.` : "";
+}
+
+function updateOutputWordCount() {
+  const t = output.value;
+  const words = (t.match(/[А-Яа-яЁёA-Za-z\-]+/g) || []).length;
+  document.getElementById("outputCount").textContent =
+    words ? `${words} сл.` : "";
+}
+output.addEventListener("input", updateOutputWordCount);
+
 async function showAiHighlights() {
   const text = input.value;
   const panel = document.getElementById("aiHighlights");
@@ -726,13 +927,6 @@ async function showAiHighlights() {
   }
 }
 // Базовый URL сервера — задаётся при загрузке окна (см. app_desktop.py)
-const SERVER = window.__SERVER_URL__ || "http://127.0.0.1:8765";
-const api = path => SERVER + path;
-const input = $("input"), output = $("output");
-let currentFileName = "";
-let originalPdfBytes = null;
-let originalDocxBytes = null;
-
 function showOverlay(msg) { $("overlayMsg").textContent = msg || "Обработка…"; $("overlay").classList.add("on"); }
 function hideOverlay() { $("overlay").classList.remove("on"); }
 
@@ -767,8 +961,6 @@ document.getElementById("copyInlineBtn").onclick = async function () {
 };
 
 // Открытие/закрытие меню «Сохранить»
-const saveMenuBtn = document.getElementById("saveMenuBtn");
-const saveMenu = document.getElementById("saveMenu");
 if (saveMenuBtn && saveMenu) {
   saveMenuBtn.onclick = (e) => {
     e.stopPropagation();
@@ -784,8 +976,6 @@ if (saveMenuBtn && saveMenu) {
 }
 
 // Панель «Опции»
-const optionsBtn = document.getElementById("optionsBtn");
-const optionsPanel = document.getElementById("optionsPanel");
 if (optionsBtn && optionsPanel) {
   optionsBtn.onclick = () => {
     optionsPanel.classList.toggle("on");
@@ -1070,6 +1260,7 @@ async function loadFile(file) {
       input.value = j.text || "";
       $("statusText").textContent =
         `Word загружен: ${file.name} · ${(j.text || "").length} символов`;
+      setTimeout(updateHighlights, 100);
       $("checkAiBtn").disabled = false;
       $("paraphraseBtn").disabled = false;
       $("checkAiLlmBtn").disabled = false;
@@ -1098,6 +1289,10 @@ async function loadFile(file) {
       $("paraphraseBtn").disabled = false;
       $("checkAiLlmBtn").disabled = false;
       $("paraphraseLlmBtn").disabled = false;
+      setTimeout(() => {
+        updateHighlights();
+        updateWordCount();
+      }, 100);
     };
     r.readAsText(file, "utf-8");
     return;
@@ -1128,6 +1323,10 @@ async function loadFile(file) {
       $("paraphraseBtn").disabled = false;
       $("checkAiLlmBtn").disabled = false;
       $("paraphraseLlmBtn").disabled = false;
+      setTimeout(() => {
+        updateHighlights();
+        updateWordCount();
+      }, 100);
     }
   } catch (e) {
     console.error(e);
@@ -1196,6 +1395,13 @@ $("cleanBtn").onclick = async () => {
     $("beforeStats").textContent = r.chars_before + " символов";
     $("afterStats").textContent = r.chars_after + " символов";
     $("statusText").textContent = "готово";
+    addHistory({
+      name: currentFileName || "текст",
+      action: "очистка",
+      input: input.value.slice(0, 5000),
+      output: output.value.slice(0, 5000),
+      score: null,
+    });
     $("copyBtn").disabled = false;
     $("saveTxtBtn").disabled = false;
     $("savePdfBtn").disabled = false;
@@ -1296,17 +1502,24 @@ $("checkAiLlmBtn").onclick = async () => {
   }
 };
 
+// При клике на подсвеченную область в textarea — показать в статусе
+input.addEventListener("click", () => {
+  const pos = input.selectionStart;
+  const phrases = document.querySelectorAll(".highlight-layer mark");
+  // проверяем попадание
+  for (const mark of phrases) {
+    const before = mark.previousSibling;
+    const offset = before && before.textContent ? before.textContent.length : 0;
+    const start = offset;
+    const end = offset + mark.textContent.length;
+    if (pos >= start && pos <= end) {
+      $("statusText").textContent = `🤖 ИИ-штамп: "${mark.textContent}" (${mark.title})`;
+      return;
+    }
+  }
+});
+
 // Перефраз через LLM
-let paraphraseAbort = null;
-let llmToastStart = 0;
-let llmToastTimer = null;
-
-const llmToast = document.getElementById("llmToast");
-const llmToastBar = document.getElementById("llmToastBar");
-const llmToastProgress = document.getElementById("llmToastProgress");
-const llmToastTime = document.getElementById("llmToastTime");
-const llmToastTitle = document.getElementById("llmToastTitle");
-
 function llmToastShow(title) {
   llmToast.classList.remove("collapsed");
   llmToast.classList.add("on");
@@ -1393,6 +1606,11 @@ $("paraphraseLlmBtn").onclick = async () => {
           total = evt.total;
           llmToastProgress.textContent = `${evt.current} / ${evt.total}`;
           llmToastBar.style.width = (evt.current / evt.total * 100) + "%";
+          // прогресс-бар в правой панели
+          const op = document.getElementById("outputProgress");
+          const opf = document.getElementById("outputProgressFill");
+          op.classList.add("on");
+          opf.style.width = (evt.current / evt.total * 100) + "%";
         } else if (evt.type === "token") {
           output.value += evt.text;
           output.scrollTop = output.scrollHeight;
@@ -1422,6 +1640,9 @@ $("paraphraseLlmBtn").onclick = async () => {
     paraphraseAbort = null;
     $("paraphraseLlmBtn").textContent = "🤖 Перефраз (LLM) ⚠️";
     llmToastHide();
+    document.getElementById("outputProgress").classList.remove("on");
+    document.getElementById("outputProgressFill").style.width = "0%";
+    updateOutputWordCount();
   }
 };
 
@@ -1499,6 +1720,89 @@ $("cleanPdfBtn").onclick = async () => {
     hideOverlay();
   }
 };
+
+// === История операций ===
+const HISTORY_KEY = "ai_cleaner_history";
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+  } catch { return []; }
+}
+
+function saveHistory(arr) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(arr.slice(0, 10)));
+}
+
+function addHistory(entry) {
+  const arr = loadHistory();
+  arr.unshift({
+    ...entry,
+    time: Date.now(),
+  });
+  saveHistory(arr);
+  renderHistory();
+}
+
+function renderHistory() {
+  const arr = loadHistory();
+  if (!arr.length) {
+    historyList.innerHTML =
+      '<div style="color:var(--muted); font-size:13px; text-align:center; padding:20px;">История пуста</div>';
+    return;
+  }
+  historyList.innerHTML = arr.map((h, i) => {
+    const scoreCls = h.score == null ? "" :
+      h.score <= 25 ? "good" : h.score <= 55 ? "mid" : "bad";
+    const scoreStr = h.score == null ? "" :
+      `<span class="hi-score ${scoreCls}">${h.score}/100</span>`;
+    const time = new Date(h.time).toLocaleString("ru-RU", {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+    });
+    return `
+      <div class="history-item" data-idx="${i}">
+        <div class="hi-row">
+          <span class="hi-name">${escapeHtml(h.name || "без имени")}</span>
+          <span class="hi-time">${time}</span>
+        </div>
+        <div class="hi-meta">
+          ${escapeHtml(h.action || "")} ${scoreStr}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  historyList.querySelectorAll(".history-item").forEach(el => {
+    el.onclick = () => {
+      const idx = parseInt(el.dataset.idx);
+      const h = loadHistory()[idx];
+      if (!h) return;
+      if (h.input) input.value = h.input;
+      if (h.output) output.value = h.output;
+      $("statusText").textContent = `восстановлено из истории: ${h.name}`;
+      historyPanel.classList.remove("on");
+      updateWordCount();
+      updateOutputWordCount();
+    };
+  });
+}
+
+historyBtn.onclick = () => {
+  renderHistory();
+  historyPanel.classList.toggle("on");
+};
+
+document.getElementById("closeHistoryBtn").onclick = () =>
+  historyPanel.classList.remove("on");
+
+document.getElementById("clearHistoryBtn").onclick = () => {
+  if (confirm("Очистить историю операций?")) {
+    localStorage.removeItem(HISTORY_KEY);
+    renderHistory();
+  }
+};
+
+// загружаем при старте
+renderHistory();
 
 ["dropL","dropR"].forEach(id => {
   const el = $(id);

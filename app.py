@@ -783,6 +783,63 @@ def find_ai_sentences(text: str) -> dict:
         "total_sentences": len(sentences),
     }
 
+def find_ai_phrases(text: str) -> dict:
+    """Находит конкретные ИИ-штампы в тексте и возвращает их позиции.
+    Для подсветки прямо в textarea."""
+    if not text:
+        return {"phrases": [], "count": 0}
+
+    # Список шаблонов для подсветки (regex + подпись)
+    PATTERNS = [
+        (r"\bоднако\b", "однако"),
+        (r"\bболее\s+того\b", "более того"),
+        (r"\bтаким\s+образом\b", "таким образом"),
+        (r"\bв\s+свою\s+очередь\b", "в свою очередь"),
+        (r"\bв\s+конечном\s+счёте\b", "в конечном счёте"),
+        (r"\bв\s+современном\s+мире\b", "в современном мире"),
+        (r"\bна\s+сегодняшний\s+день\b", "на сегодняшний день"),
+        (r"\bважно\s+отметить\b", "важно отметить"),
+        (r"\bстоит\s+отметить\b", "стоит отметить"),
+        (r"\bследует\s+отметить\b", "следует отметить"),
+        (r"\bважно\s+подчеркнуть\b", "важно подчеркнуть"),
+        (r"\bиграет\s+важную\s+роль\b", "играет важную роль"),
+        (r"\bиграет\s+ключевую\s+роль\b", "играет ключевую роль"),
+        (r"\bпредставляет\s+собой\b", "представляет собой"),
+        (r"\bявляется\s+(ключевым|важным|основным)\b", "является ключевым"),
+        (r"\bперестал\s+быть\s+просто\b", "перестал быть просто"),
+        (r"\bпревратил(ся|ась|ось)\s+в\b", "превратился в"),
+        (r"\bи\s+в\s+этом\s+(его|её|их)\b", "и в этом его"),
+        (r"\bвыбор\s+остаётся\s+за\b", "выбор остаётся за"),
+        (r"\bименно\s+поэтому\b", "именно поэтому"),
+        (r"\bне\s+просто\s+[^,.!?]{2,40}?,?\s+а\s+", "не просто X, а Y"),
+        (r"\bне\s+только\s+[^,.!?]{2,40}?,?\s+но\s+и\b", "не только X, но и Y"),
+        (r"\bне\s+столько\s+[^,.!?]{2,40}?,?\s+сколько\b", "не столько X, сколько Y"),
+        (r"\bэто\s+не\s+[а-яё]+,\s*а\s+[а-яё]+", "это не X, а Y"),
+        (r"\bглавн[а-яё]+\s+(урок|вывод|мысль|идея)\b", "главный урок"),
+        (r"\bот\s+[а-яё]{4,}\s+до\s+[а-яё]{4,}", "от X до Y"),
+        (r"—", "длинное тире"),
+    ]
+
+    found = []
+    for regex, label in PATTERNS:
+        for m in re.finditer(regex, text, flags=re.IGNORECASE):
+            found.append({
+                "start": m.start(),
+                "end": m.end(),
+                "text": m.group(0),
+                "label": label,
+            })
+
+    # сортируем по позиции и убираем пересечения
+    found.sort(key=lambda x: x["start"])
+    cleaned = []
+    last_end = -1
+    for f in found:
+        if f["start"] >= last_end:
+            cleaned.append(f)
+            last_end = f["end"]
+
+    return {"phrases": cleaned, "count": len(cleaned)}
 
 # =============================================================
 #  РАБОТА С PDF
@@ -1392,6 +1449,15 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})
+
+        elif self.path == "/highlight-phrases":
+            try:
+                data = json.loads(raw)
+                result = find_ai_phrases(data.get("text", ""))
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})        
 
         else:
             self._send(404, b"not found", "text/plain")
