@@ -282,6 +282,55 @@ STAMP_RULES = [
     (r"\bнельзя\s+не\s+сказать\b", "скажу"),
 ]
 
+import random
+
+# Вариативные синонимы: ключ → список вариантов.
+# Заменяем одну и ту же фразу разными способами — текст становится живее.
+VARIATIVE_REPLACEMENTS = {
+    r"\bоднако\b": ["но", "впрочем", "и всё же", "хотя"],
+    r"\bтаким\s+образом\b": ["значит", "выходит", "получается", "в итоге"],
+    r"\bболее\s+того\b": ["к тому же", "и ещё", "вдобавок"],
+    r"\bкроме\s+того\b": ["и ещё", "вдобавок", "плюс к этому"],
+    r"\bнапример\b": ["скажем", "к примеру", "для примера"],
+    r"\bв\s+современном\s+мире\b": ["сегодня", "в наши дни", "сейчас"],
+    r"\bна\s+сегодняшний\s+день\b": ["сейчас", "сегодня", "в наши дни"],
+    r"\bв\s+настоящее\s+время\b": ["сейчас", "теперь"],
+    r"\bданный\b": ["этот", "такой", "тот"],
+    r"\bданная\b": ["эта", "такая"],
+    r"\bданное\b": ["это", "такое"],
+    r"\bважно\s+отметить,?\s*что\b": ["замечу:", "стоит сказать:", "нужно понять:"],
+    r"\bпредставляет\s+собой\b": ["это", "является", "по сути —"],
+    r"\bв\s+связи\s+с\s+этим\b": ["поэтому", "из-за этого", "в итоге"],
+    r"\bв\s+заключение\b": ["в конце", "под конец", "напоследок"],
+    r"\bв\s+целом\b": ["в общем", "по большому счёту", "в основном"],
+    r"\bкак\s+правило\b": ["обычно", "чаще всего", "в большинстве случаев"],
+    r"\bв\s+частности\b": ["например", "в том числе"],
+    r"\bименно\s+поэтому\b": ["поэтому", "вот почему"],
+    r"\bглавный\s+урок\b": ["урок", "вывод"],
+    r"\bглавный\s+вывод\b": ["вывод", "главное"],
+    r"\bв\s+конечном\s+счёте\b": ["в итоге", "в конце концов", "в финале"],
+}
+
+
+def _variative_paraphrase(text: str, intensity: int = 5) -> tuple:
+    """Замена синонимов случайным образом. Возвращает (текст, число_замен)."""
+    total = 0
+    for pattern, options in VARIATIVE_REPLACEMENTS.items():
+        def repl(m):
+            nonlocal total
+            total += 1
+            choice = random.choice(options)
+            # сохраняем регистр
+            if m.group(0) and m.group(0)[0].isupper():
+                choice = choice[0].upper() + choice[1:]
+            return choice
+
+        try:
+            text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+        except re.error:
+            continue
+    return text, total
+
 
 def _apply_case(source: str, replacement: str) -> str:
     """Сохраняет регистр первого символа и заглавные внутри."""
@@ -316,54 +365,174 @@ def _smart_replace(text: str, pattern: str, replacement: str) -> tuple:
         return text, 0
     return new_text, applied
 
+def _split_long_sentences(text: str, max_words: int = 28) -> str:
+    """Разбивает слишком длинные предложения на два.
+    Ищем логичные точки разрыва: перед союзами 'а', 'но', 'и', 'однако'."""
+    sentences = re.split(r"(?<=[.!?…])\s+", text)
+    out = []
+
+    for s in sentences:
+        words = s.split()
+        if len(words) <= max_words:
+            out.append(s)
+            continue
+
+        # ищем места для разрыва
+        # приоритет: длинное тире, точка с запятой, союзы "а", "но", "однако"
+        markers = [r"\s+—\s+", r";\s+", r",\s+(?=но\s)", r",\s+(?=а\s)",
+                   r",\s+(?=однако\s)", r",\s+(?=и\s+[а-яё]{4,})"]
+
+        best_split = None
+        for marker in markers:
+            match = re.search(marker, s)
+            if match:
+                # ищем ближайший к середине
+                mid = len(s) // 2
+                pos = match.start()
+                if best_split is None or abs(pos - mid) < abs(best_split - mid):
+                    best_split = pos
+
+        if best_split and best_split > 20:
+            first = s[:best_split].rstrip(" ,;—-")
+            second = s[best_split:].lstrip(" ,;—-")
+            # первое завершаем точкой
+            first = first.rstrip(".") + "."
+            # второе — с заглавной
+            if second:
+                second = second[0].upper() + second[1:]
+            out.append(first + " " + second)
+        else:
+            out.append(s)
+
+    return " ".join(out)
+
+
+def _merge_short_sentences(text: str, min_words: int = 4) -> str:
+    """Объединяет слишком короткие предложения с соседними через 'и' или ','."""
+    sentences = re.split(r"(?<=[.!?…])\s+", text)
+    if len(sentences) < 2:
+        return text
+
+    out = [sentences[0]]
+    for s in sentences[1:]:
+        prev = out[-1]
+        if len(s.split()) < min_words and len(prev.split()) < 15:
+            # склеиваем
+            connector = ", и " if not prev.endswith((",", "—")) else " "
+            out[-1] = prev.rstrip(".!?") + connector + s[0].lower() + s[1:]
+        else:
+            out.append(s)
+
+    return " ".join(out)
+
+# Вводные слова в начале предложения, от которых можно избавиться
+LEADING_FILLERS = [
+    r"^Однако,?\s+",
+    r"^Таким\s+образом,?\s+",
+    r"^Более\s+того,?\s+",
+    r"^Кроме\s+того,?\s+",
+    r"^Итак,?\s+",
+    r"^Вместе\s+с\s+тем,?\s+",
+    r"^При\s+этом,?\s+",
+    r"^Также\s+",
+    r"^Помимо\s+этого,?\s+",
+    r"^В\s+то\s+же\s+время,?\s+",
+]
+
+
+def _strip_leading_fillers(text: str, max_percent: float = 0.3) -> str:
+    """Убирает вводные в начале предложений, но не все — максимум 30%."""
+    sentences = re.split(r"(?<=[.!?…])\s+", text)
+    if not sentences:
+        return text
+
+    out = []
+    removed = 0
+    max_remove = max(1, int(len(sentences) * max_percent))
+
+    for s in sentences:
+        cleaned = s
+        for pat in LEADING_FILLERS:
+            if removed < max_remove and re.match(pat, cleaned, re.IGNORECASE):
+                # убираем вводное и делаем заглавную у следующего слова
+                cleaned = re.sub(pat, "", cleaned, count=1, flags=re.IGNORECASE)
+                if cleaned:
+                    cleaned = cleaned[0].upper() + cleaned[1:]
+                removed += 1
+                break
+        out.append(cleaned)
+
+    return " ".join(out)
+
 def paraphrase_stamps(text: str, intensity: int = 5, multi_pass: bool = False) -> dict:
-    """Заменяет штампы и клише на живые обороты.
-    intensity: 1–10. При > 5 включаются дополнительные проходы.
-    multi_pass: прогнать 2 раза для очистки вторичных штампов."""
+    """Полный пайплайн перефраза без LLM:
+    1. Замена штампов по правилам (STAMP_RULES)
+    2. Вариативная замена синонимов (случайные варианты)
+    3. Удаление вводных в начале
+    4. Разбивка длинных предложений
+    5. Объединение коротких
+    6. Косметика
+    """
     original = text
     applied = []
 
-    def _apply_pass(txt, rules_subset=None):
-        nonlocal applied
-        rules = rules_subset if rules_subset is not None else STAMP_RULES
-        for pattern, replacement in rules:
+    # === 1. Замена штампов ===
+    def _apply_pass(txt):
+        cnt_total = 0
+        for pattern, replacement in STAMP_RULES:
             new_text, count = _smart_replace(txt, pattern, replacement)
             if count > 0:
                 applied.append({"pattern": pattern, "count": count})
+                cnt_total += count
                 txt = new_text
-        return txt
+        return txt, cnt_total
 
-    text = _apply_pass(text)
+    text, n1 = _apply_pass(text)
 
-    # при высокой интенсивности — второй проход
-    if multi_pass or intensity >= 7:
-        before = text
-        text = _apply_pass(text)
-        if text != before:
-            applied.append({"pattern": "[второй проход]", "count": 1})
+    # === 2. Вариативная замена синонимов ===
+    # чем выше интенсивность, тем сильнее вмешиваемся
+    text, n2 = _variative_paraphrase(text, intensity)
 
-    # косметика
+    # === 3. Удаление вводных ===
+    if intensity >= 4:
+        text = _strip_leading_fillers(text)
+
+    # === 4. Разбивка длинных предложений ===
+    if intensity >= 5:
+        text = _split_long_sentences(text)
+
+    # === 5. Объединение коротких ===
+    if intensity >= 5:
+        text = _merge_short_sentences(text)
+
+    # === 6. Второй проход при высокой интенсивности ===
+    if multi_pass or intensity >= 8:
+        text, _ = _apply_pass(text)
+        text, _ = _variative_paraphrase(text, intensity)
+
+    # === 7. Косметика ===
     text = re.sub(r"\s+([,.!?;:])", r"\1", text)
     text = re.sub(r"\s{2,}", " ", text)
     text = re.sub(r"^\s*,\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r",\s*,", ",", text)
     text = re.sub(r"\.\s*,", ".", text)
+    # заглавная после точки
     text = re.sub(r"([.!?])\s*([а-яё])",
                   lambda m: m.group(1) + " " + m.group(2).upper(), text)
     # убираем двойные точки
     text = re.sub(r"\.\.(?!\.)", ".", text)
-    # убираем пробел перед точкой
     text = re.sub(r"\s+\.", ".", text)
+    text = text.strip()
 
     return {
         "paraphrased": text,
         "replacements": len(applied),
-        "total_swaps": sum(a["count"] for a in applied),
+        "total_swaps": sum(a["count"] for a in applied) + n2,
         "details": applied[:15],
         "chars_before": len(original),
         "chars_after": len(text),
         "intensity": intensity,
-        "multi_pass": multi_pass or intensity >= 7,
+        "multi_pass": multi_pass or intensity >= 8,
     }
 
 def diff_words_html(before: str, after: str) -> dict:
