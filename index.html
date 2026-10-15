@@ -654,6 +654,16 @@
     <input type="range" id="llmIntensity" min="1" max="10" value="5" style="width:80px; accent-color:var(--accent);">
     <span id="llmIntensityVal" style="color:var(--text); font-weight:600; min-width:14px;">5</span>
   </label>
+    <label class="opt-label" title="Стиль перефраза: научный / деловой / живой / сжатый">
+    Стиль:
+    <select id="paraphraseStyle" class="select">
+      <option value="neutral">Нейтральный</option>
+      <option value="academic">Научный</option>
+      <option value="business">Деловой</option>
+      <option value="casual">Живой</option>
+      <option value="concise">Сжатый</option>
+    </select>
+  </label>
   <span class="opt-hint">Шрифт и размер — только для «PDF со структурой»</span>
 </div>
 
@@ -955,7 +965,11 @@ async function updateHighlights() {
     const res = await fetch(api("/highlight-phrases"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ text })
+      body: JSON.stringify({
+        text,
+        intensity: intensityInput ? parseInt(intensityInput.value) : 5,
+        multi_pass: true,
+      })
     });
     const data = await res.json();
     if (data.error) return;
@@ -1952,7 +1966,11 @@ $("paraphraseLlmBtn").onclick = async () => {
     const res = await fetch(api("/paraphrase-llm-stream"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ text, intensity }),
+      body: JSON.stringify({
+        text,
+        intensity,
+        style: $("paraphraseStyle") ? $("paraphraseStyle").value : "neutral",
+      }),
       signal: paraphraseAbort.signal,
     });
 

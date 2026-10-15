@@ -148,132 +148,222 @@ def clean_text(text: str, aggressive: bool = False, safe_aggressive: bool = Fals
 #  ПЕРЕФРАЗ ШТАМПОВ (замена клише на живые обороты)
 # =============================================================
 
+# Профили стиля для перефраза
+STYLE_PRESETS = {
+    "neutral": {
+        "name": "Нейтральный",
+        "hint": "Перепиши текст другими словами, сохранив смысл.",
+        "temperature": 0.7,
+        "extra_rules": [],
+    },
+    "academic": {
+        "name": "Научный",
+        "hint": "Перепиши в научном стиле. Сохрани все термины и факты. "
+                "Убери канцелярит, но оставь точность формулировок.",
+        "temperature": 0.4,
+        "extra_rules": [
+            # в научном тексте не упрощаем термины
+        ],
+    },
+    "business": {
+        "name": "Деловой",
+        "hint": "Перепиши в деловом стиле. Формально, но без канцелярита. "
+                "Коротко и по делу.",
+        "temperature": 0.5,
+        "extra_rules": [],
+    },
+    "casual": {
+        "name": "Живой",
+        "hint": "Перепиши живым, естественным языком, как будто рассказываешь "
+                "другу. Убери все штампы. Можно использовать разговорные обороты.",
+        "temperature": 0.9,
+        "extra_rules": [],
+    },
+    "concise": {
+        "name": "Сжатый",
+        "hint": "Сократи текст на 30–40%, сохранив все факты и смысл. "
+                "Убери воду, повторы, вводные слова.",
+        "temperature": 0.5,
+        "extra_rules": [],
+    },
+}
+
 STAMP_RULES = [
-    # «не просто X, а Y» → «X, и даже Y»
-    (r"\bне\s+просто\s+([^,.!?]{2,60}?),\s*а\s+", r"\1, и даже "),
-    (r"\bне\s+только\s+([^,.!?]{2,60}?),\s*но\s+и\s+", r"\1 и даже "),
-    (r"\bне\s+столько\s+([^,.!?]{2,60}?),\s*сколько\s+", r"не только \1, но и "),
-    (r"\bэто\s+не\s+([а-яё]+),\s*а\s+", r"это \1, и даже "),
+    # === РАСШИРЕННЫЕ ЗАМЕНЫ ===
+    # канцелярит → живое
+    (r"\bв\s+целях\s+обеспечения\b", "чтобы"),
+    (r"\bс\s+целью\s+обеспечения\b", "чтобы"),
+    (r"\bв\s+качестве\s+примера\b", "например"),
+    (r"\bв\s+частности,?\s+", "например, "),
+    (r"\bпри\s+этом\b", "причём"),
+    (r"\bв\s+связи\s+с\s+этим\b", "поэтому"),
+    (r"\bпо\s+этой\s+причине\b", "поэтому"),
+    (r"\bвследствие\s+этого\b", "из-за этого"),
+    (r"\bв\s+силу\s+этого\b", "поэтому"),
+    (r"\bкак\s+следствие\b", "в итоге"),
+    (r"\bв\s+первую\s+очередь\b", "прежде всего"),
+    (r"\bв\s+то\s+же\s+время\b", "одновременно"),
+    (r"\bна\s+протяжении\s+длительного\s+времени\b", "долго"),
+    (r"\bв\s+кратчайшие\s+сроки\b", "быстро"),
+    (r"\bв\s+короткие\s+сроки\b", "быстро"),
+    (r"\bв\s+полной\s+мере\b", "полностью"),
+    (r"\bв\s+значительной\s+степени\b", "во многом"),
+    (r"\bв\s+определённой\s+степени\b", "частично"),
+    (r"\bв\s+достаточной\s+степени\b", "достаточно"),
+    (r"\bдостаточно\s+часто\b", "часто"),
+    (r"\bзачастую\b", "часто"),
+    (r"\bнередко\b", "часто"),
+    (r"\bв\s+большинстве\s+случаев\b", "обычно"),
+    (r"\bв\s+ряде\s+случаев\b", "иногда"),
+    (r"\bв\s+некоторых\s+случаях\b", "иногда"),
+    (r"\bв\s+данный\s+момент\b", "сейчас"),
+    (r"\bдо\s+настоящего\s+времени\b", "до сих пор"),
+    (r"\bпо\s+настоящее\s+время\b", "до сих пор"),
+    (r"\bна\s+данном\s+этапе\b", "сейчас"),
+    (r"\bв\s+перспективе\b", "в будущем"),
+    (r"\bв\s+дальнейшем\b", "потом"),
+    (r"\bв\s+свою\s+очередь,?\s+", ""),
+    (r"\bкроме\s+того,?\s+", "и "),
 
-    # Клише-вводные
-    (r"\bоднако\b", "но"),
-    (r"\bболее\s+того\b", "к тому же"),
-    (r"\bтаким\s+образом\b", "значит"),
-    (r"\bв\s+свою\s+очередь\b", ""),
-    (r"\bв\s+конечном\s+счёте\b", "в итоге"),
-    (r"\bв\s+современном\s+мире\b", "сегодня"),
-    (r"\bна\s+сегодняшний\s+день\b", "сейчас"),
-    (r"\bважно\s+отметить,?\s*что\b", "замечу:"),
-    (r"\bстоит\s+отметить,?\s*что\b", "замечу:"),
-    (r"\bследует\s+отметить,?\s*что\b", "замечу:"),
-    (r"\bважно\s+подчеркнуть,?\s*что\b", "подчеркну:"),
-    (r"\bиграет\s+важную\s+роль\b", "сильно влияет"),
-    (r"\bиграет\s+ключевую\s+роль\b", "определяет"),
-    (r"\bиграет\s+значимую\s+роль\b", "заметно влияет"),
-    (r"\bпредставляет\s+собой\b", "это"),
-    (r"\bявляется\s+ключевым\b", "ключевой"),
-    (r"\bявляется\s+важным\b", "важный"),
-    (r"\bявляется\s+одним\s+из\b", "один из"),
-    (r"\bперестал\s+быть\s+просто\b", "перестал быть только"),
-    (r"\bпревратил(ся|ась|ось)\s+в\b", r"стал \1 в"),
-    (r"\bи\s+в\s+этом\s+его\s+сила\b", "и вот где он силён"),
-    (r"\bи\s+в\s+этом\s+его\s+слабость\b", "и вот где он слаб"),
-    (r"\bи\s+в\s+этом\s+его\s+предел\b", "и здесь его предел"),
-    (r"\bвыбор\s+остаётся\s+за\b", "решает"),
-    (r"\bименно\s+поэтому\b", "поэтому"),
-    (r"\bответ,?\s+вероятно,?\s+в\s+том,?\s*что\b", "скорее всего,"),
-    (r"\bответ,?\s+возможно,?\s+в\s+том,?\s*что\b", "возможно,"),
-    (r"\bбудущее\s+([а-яё]+)\s+зависит\s+не\s+столько\s+от\s+([^,.!?]{2,40}?),?\s*сколько\s+от\s+", r"\1 зависит не от \2, а от "),
-    (r"\bглавный\s+урок\b", "урок"),
-    (r"\bглавный\s+вывод\b", "вывод"),
-    (r"\bглавная\s+мысль\b", "мысль"),
-    (r"\bсегодня\s+же\b", "уже сегодня"),
-    (r"\bи\s+главное,?\b", "и вот что важно:"),
+    # «пустые» усилители
+    (r"\bпоистине\b", ""),
+    (r"\bпоистине\s+уникальн", "уникальн"),
+    (r"\bисключительно\s+важн", "важн"),
+    (r"\bкрайне\s+важн", "важн"),
+    (r"\bчрезвычайно\s+важн", "важн"),
+    (r"\bвесьма\s+существенн", "существенн"),
+    (r"\bабсолютно\s+очевидн", "очевидн"),
+    (r"\bв\s+высшей\s+степени\b", "очень"),
+    (r"\bсамым\s+тесным\s+образом\b", "тесно"),
+    (r"\bсамым\s+непосредственным\s+образом\b", "напрямую"),
+    (r"\bдолжным\s+образом\b", "как надо"),
+    (r"\bнадлежащим\s+образом\b", "как надо"),
+    (r"\bсоответствующим\s+образом\b", "как надо"),
 
-    # === НОВЫЕ ПРАВИЛА — канцелярит ===
-    (r"\bданный\b", "этот"),
-    (r"\bданная\b", "эта"),
-    (r"\bданное\b", "это"),
-    (r"\bданные\b", "эти"),
-    (r"\bосуществля(ет|ют|ем|ешь)\b", r"дела\1"),
-    (r"\bосуществля(ть|ться|ется)\b", r"дела\1"),
-    (r"\bфункциониру(ет|ют|ешь)\b", r"работа\1"),
-    (r"\bфункционирова(ть|ние)\b", r"работа\1"),
-    (r"\bв\s+целях\b", "чтобы"),
-    (r"\bв\s+связи\s+с\s+тем,?\s*что\b", "потому что"),
-    (r"\bввиду\s+того,?\s*что\b", "так как"),
-    (r"\bв\s+области\b", "в"),
-    (r"\bпутём\b", "через"),
-    (r"\bс\s+помощью\b", "через"),
-    (r"\bв\s+результате\b", "из-за"),
-    (r"\bна\s+основании\b", "по"),
-    (r"\bв\s+соответствии\s+с\b", "по"),
-    (r"\bдля\s+того\s+чтобы\b", "чтобы"),
-    (r"\bв\s+качестве\b", "как"),
-    (r"\bв\s+течение\b", "за"),
-    (r"\bна\s+протяжении\b", "за"),
-    (r"\bв\s+процессе\b", "во время"),
-    (r"\bпо\s+отношению\s+к\b", "к"),
-    (r"\bпо\s+сравнению\s+с\b", "чем"),
-    (r"\bв\s+отличие\s+от\b", "не как"),
-    (r"\bпо\s+мнению\b", "считают"),
-    (r"\bс\s+точки\s+зрения\b", "по"),
-    (r"\bв\s+рамках\b", "в"),
-    (r"\bна\s+данный\s+момент\b", "сейчас"),
-    (r"\bв\s+настоящее\s+время\b", "сейчас"),
-    (r"\bимеет\s+место\s+быть\b", "происходит"),
-    (r"\bносит\s+характер\b", "похоже на"),
+    # деепричастия и причастия → проще
+    (r"\bявляясь\b", "будучи"),
+    (r"\bпредставляя\s+собой\b", "как"),
+    (r"\bосуществляя\b", "делая"),
+    (r"\bпроизводя\b", "делая"),
+    (r"\bсовершая\b", "делая"),
+    (r"\bиспользуя\b", "через"),
+    (r"\bприменяя\b", "через"),
+    (r"\bучитывая\b", "с учётом"),
 
-    # Тире → запятая в правильном контексте
-    (r"\s+—\s+([а-яё])", r", \1"),
-    (r"(\S)\s+—\s+(\S)", r"\1 — \2"),
+    # длинные конструкции → короче
+    (r"\bв\s+том\s+случае,?\s+если\b", "если"),
+    (r"\bв\s+том\s+случае,?\s+когда\b", "когда"),
+    (r"\bпо\s+той\s+причине,?\s+что\b", "потому что"),
+    (r"\bпо\s+причине\s+того,?\s+что\b", "потому что"),
+    (r"\bнесмотря\s+на\s+то,?\s+что\b", "хотя"),
+    (r"\bнезависимо\s+от\s+того,?\s+что\b", "хотя"),
+    (r"\bвне\s+зависимости\s+от\s+того,?\s+что\b", "хотя"),
+    (r"\bвместо\s+того,?\s+чтобы\b", "вместо"),
+
+    # фразовые «пустышки»
+    (r"\bследует\s+иметь\s+в\s+виду\b", "учтите"),
+    (r"\bнеобходимо\s+иметь\s+в\s+виду\b", "учтите"),
+    (r"\bстоит\s+иметь\s+в\s+виду\b", "учтите"),
+    (r"\bважно\s+иметь\s+в\s+виду\b", "учтите"),
+    (r"\bнужно\s+иметь\s+в\s+виду\b", "учтите"),
+
+    # «рамочные» обороты
+    (r"\bв\s+рамках\s+данной\s+работы\b", "здесь"),
+    (r"\bв\s+рамках\s+данного\s+исследования\b", "здесь"),
+    (r"\bв\s+рамках\s+статьи\b", "здесь"),
+    (r"\bв\s+данной\s+статье\b", "здесь"),
+    (r"\bв\s+данной\s+работе\b", "здесь"),
+    (r"\bв\s+заключение\s+хотелось\s+бы\s+отметить\b", "в итоге"),
+    (r"\bв\s+заключение\s+стоит\s+отметить\b", "в итоге"),
+
+    # двойные отрицания
+    (r"\bне\s+может\s+не\s+отметить\b", "отмечу"),
+    (r"\bнельзя\s+не\s+отметить\b", "стоит отметить"),
+    (r"\bнельзя\s+не\s+сказать\b", "скажу"),
 ]
 
 
 def _apply_case(source: str, replacement: str) -> str:
-    """Сохраняет регистр первого символа."""
+    """Сохраняет регистр первого символа и заглавные внутри."""
     if not replacement:
         return replacement
     if source and source[0].isupper() and replacement[0].islower():
         return replacement[0].upper() + replacement[1:]
+    # если источник был ВСЕМИ ЗАГЛАВНЫМИ
+    if source and len(source) > 2 and source.isupper():
+        return replacement.upper()
     return replacement
 
 
-def paraphrase_stamps(text: str) -> dict:
-    """Заменяет штампы и клише на живые обороты. Возвращает текст и отчёт."""
+def _smart_replace(text: str, pattern: str, replacement: str) -> tuple:
+    """Умная замена с сохранением регистра, обработкой падежей.
+    Возвращает (новый_текст, количество_замен)."""
+    applied = 0
+
+    def repl(m):
+        nonlocal applied
+        applied += 1
+        try:
+            result = m.expand(replacement)
+        except Exception:
+            result = replacement
+        # сохраняем регистр первой буквы
+        return _apply_case(m.group(0), result)
+
+    try:
+        new_text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+    except re.error:
+        return text, 0
+    return new_text, applied
+
+def paraphrase_stamps(text: str, intensity: int = 5, multi_pass: bool = False) -> dict:
+    """Заменяет штампы и клише на живые обороты.
+    intensity: 1–10. При > 5 включаются дополнительные проходы.
+    multi_pass: прогнать 2 раза для очистки вторичных штампов."""
     original = text
     applied = []
 
-    for pattern, replacement in STAMP_RULES:
-        # замена с сохранением регистра для первой буквы
-        def repl(m, _r=replacement):
-            result = m.expand(_r)
-            return _apply_case(m.group(0), result)
+    def _apply_pass(txt, rules_subset=None):
+        nonlocal applied
+        rules = rules_subset if rules_subset is not None else STAMP_RULES
+        for pattern, replacement in rules:
+            new_text, count = _smart_replace(txt, pattern, replacement)
+            if count > 0:
+                applied.append({"pattern": pattern, "count": count})
+                txt = new_text
+        return txt
 
-        new_text, count = re.subn(pattern, repl, text, flags=re.IGNORECASE)
-        if count > 0:
-            applied.append({
-                "pattern": pattern,
-                "count": count,
-            })
-            text = new_text
+    text = _apply_pass(text)
 
-    # косметика: лишние пробелы, пробелы перед запятыми/точками, двойные заглавные
+    # при высокой интенсивности — второй проход
+    if multi_pass or intensity >= 7:
+        before = text
+        text = _apply_pass(text)
+        if text != before:
+            applied.append({"pattern": "[второй проход]", "count": 1})
+
+    # косметика
     text = re.sub(r"\s+([,.!?;:])", r"\1", text)
     text = re.sub(r"\s{2,}", " ", text)
     text = re.sub(r"^\s*,\s*", "", text, flags=re.MULTILINE)
-    text = re.sub(r"([.!?])\s*([а-яё])", lambda m: m.group(1) + " " + m.group(2).upper(), text)
-
-    # предлоги/союзы с большой буквы внутри предложения — оставим как есть
-    # (это редкий случай, лучше не трогать)
+    text = re.sub(r",\s*,", ",", text)
+    text = re.sub(r"\.\s*,", ".", text)
+    text = re.sub(r"([.!?])\s*([а-яё])",
+                  lambda m: m.group(1) + " " + m.group(2).upper(), text)
+    # убираем двойные точки
+    text = re.sub(r"\.\.(?!\.)", ".", text)
+    # убираем пробел перед точкой
+    text = re.sub(r"\s+\.", ".", text)
 
     return {
         "paraphrased": text,
         "replacements": len(applied),
         "total_swaps": sum(a["count"] for a in applied),
-        "details": applied[:10],  # первые 10 для отчёта
+        "details": applied[:15],
         "chars_before": len(original),
         "chars_after": len(text),
+        "intensity": intensity,
+        "multi_pass": multi_pass or intensity >= 7,
     }
 
 def diff_words_html(before: str, after: str) -> dict:
@@ -756,7 +846,7 @@ def check_ai_with_llm(text: str) -> dict:
     except Exception as e:
         return {"error": f"Ollama недоступна: {e}", "available": False}
 
-def paraphrase_with_llm(text: str) -> dict:
+def paraphrase_with_llm(text: str, intensity: int = 5, style: str = "neutral") -> dict:
     if not HAS_OLLAMA:
         raise RuntimeError("Ollama не установлена")
 
@@ -838,9 +928,8 @@ def paraphrase_with_llm(text: str) -> dict:
         "method": "llm",
     }
 
-def paraphrase_stream_generator(text: str, intensity: int = 5):
-    """Генератор для SSE-стриминга перефраза.
-    yield-ит словари: {"type": "progress"|"token"|"end_chunk"|"done"|"error", ...}"""
+def paraphrase_stream_generator(text: str, intensity: int = 5, style: str = "neutral"):
+    """Генератор для SSE-стриминга перефраза."""
     if not HAS_OLLAMA:
         yield {"type": "error", "message": "Ollama не установлена"}
         return
@@ -849,16 +938,18 @@ def paraphrase_stream_generator(text: str, intensity: int = 5):
     total = len(paragraphs)
 
     if intensity <= 3:
-        style_hint = "Замени только штампы и канцелярит. Остальное не трогай."
+        hint = "Замени только штампы и канцелярит. Остальное не трогай."
     elif intensity <= 7:
-        style_hint = "Перепиши текст другими словами, сохранив смысл."
+        hint = "Перепиши текст другими словами, сохранив смысл."
     else:
-        style_hint = "Полностью перепиши текст, измени структуру, но сохрани факты."
+        hint = "Полностью перепиши текст, измени структуру, но сохрани факты."
 
+    preset = STYLE_PRESETS.get(style, STYLE_PRESETS["neutral"])
     system_prompt = (
-        "Ты — редактор. Отвечаешь только готовым текстом, без пояснений. "
-        f"{style_hint}"
+        f"Ты — редактор. Отвечаешь только готовым текстом, без пояснений. "
+        f"{preset['hint']} {hint}"
     )
+    temperature = preset["temperature"]
 
     for i, para in enumerate(paragraphs):
         yield {"type": "progress", "current": i + 1, "total": total}
@@ -878,7 +969,7 @@ def paraphrase_stream_generator(text: str, intensity: int = 5):
                 ],
                 stream=True,
                 options={
-                    "temperature": 0.3 if intensity <= 3 else 0.7 if intensity <= 7 else 1.0,
+                    "temperature": temperature,
                     "num_predict": max(500, len(para) * 3),
                 },
             ):
@@ -1628,6 +1719,7 @@ class Handler(BaseHTTPRequestHandler):
                 data = json.loads(raw)
                 text = data.get("text", "")
                 intensity = int(data.get("intensity", 5))
+                style = data.get("style", "neutral")
 
                 # SSE-ответ
                 self.send_response(200)
@@ -1637,7 +1729,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("X-Accel-Buffering", "no")
                 self.end_headers()
 
-                for event in paraphrase_stream_generator(text, intensity):
+                for event in paraphrase_stream_generator(text, intensity, style):
                     line = f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     try:
                         self.wfile.write(line.encode("utf-8"))
@@ -1727,7 +1819,11 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/paraphrase":
             try:
                 data = json.loads(raw)
-                result = paraphrase_stamps(data.get("text", ""))
+                result = paraphrase_stamps(
+                    data.get("text", ""),
+                    intensity=int(data.get("intensity", 5)),
+                    multi_pass=bool(data.get("multi_pass", False)),
+                )
                 self._json(200, result)
             except Exception as e:
                 traceback.print_exc()
