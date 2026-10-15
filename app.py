@@ -550,6 +550,59 @@ ABSTRACT_STEMS = [
     "систем", "структур", "парадигм", "трансформац", "коммуникац",
     "сущност", "явлени", "взаимодейств",
 ]
+# Анти-паттерны: то, что ИИ почти никогда не делает, а человек — постоянно
+HUMAN_MARKERS = [
+    # личные вставки
+    r"\bя\s+(думаю|считаю|помню|знаю|видел|читал|пробовал)\b",
+    r"\bмне\s+(кажется|нравится|кажется|представляется)\b",
+    r"\bпо[-\s]моему\b", r"\bпо[-\s]моему\s+мнению\b",
+    r"\bна\s+мой\s+взгляд\b",
+    r"\bчестно\s+говоря\b", r"\bесли\s+честно\b",
+    r"\bпризнаться\b", r"\bскажу\s+честно\b",
+    # сомнения и хезитации
+    r"\bнаверное\b", r"\bнаверно\b", r"\bпожалуй\b",
+    r"\bвроде\s+бы\b", r"\bкак\s+бы\b", r"\bвроде\b",
+    r"\bможет\s+быть\b", r"\bвозможно\b",
+    # разговорные
+    r"\bкороче\b", r"\bвообще\b", r"\bвообще[-\s]то\b",
+    r"\bприкинь\b", r"\bкстати\b", r"\bк\s+слову\b",
+    r"\bтак\s+вот\b", r"\bвот\s+именно\b",
+    r"\bзнаешь\b", r"\bпонимаешь\b", r"\bслышь\b",
+    # личный опыт
+    r"\bоднажды\b", r"\bкак[-\s]то\s+раз\b", r"\bпомню\b",
+    r"\bв\s+детстве\b", r"\bу\s+меня\s+был\b",
+    r"\bя\s+сам\b", r"\bсвоими\s+глазами\b",
+    # эмоции
+    r"\bужас\b", r"\bкошмар\b", r"\bкапец\b", r"\bжесть\b",
+    r"\bкласс\b", r"\bкруто\b", r"\bсупер\b", r"\bогонь\b",
+    r"\bобидно\b", r"\bпечально\b", r"\bгрустно\b",
+    r"\bненавижу\b", r"\bобожаю\b", r"\bлюблю\b",
+]
+
+# Риторические маркеры
+RHETORICAL = {
+    "metaphor": [
+        r"\bкак\s+будто\b", r"\bсловно\b", r"\bточно\b", r"\bпохож[а-яё]*\s+на\b",
+    ],
+    "comparison": [
+        r"\bлучше\s+чем\b", r"\bхуже\s+чем\b", r"\bбыстрее\s+чем\b",
+        r"\bсильнее\s+чем\b", r"\b[а-яё]+\s+как\s+[а-яё]+",
+    ],
+    "rhetorical_q": [
+        r"\?[^?]{0,40}\?",  # несколько вопросов подряд
+    ],
+    "exclamation": [
+        r"!", r"!!", r"!!",
+    ],
+}
+
+# Функциональные слова (у ИИ обычно более равномерно распределены)
+FUNCTION_WORDS = {
+    "prepositions": ["в", "на", "с", "по", "из", "к", "от", "для", "при", "о", "об", "за", "под", "над", "про", "без", "до", "у"],
+    "conjunctions": ["и", "а", "но", "или", "что", "чтобы", "если", "когда", "потому", "хотя", "пока", "зато"],
+    "particles": ["же", "ли", "бы", "не", "ни", "вот", "ведь", "даже", "только", "именно", "просто", "лишь"],
+    "pronouns": ["я", "ты", "он", "она", "мы", "вы", "они", "это", "то", "этот", "тот"],
+}
 # Эмоционально-оценочная лексика (у людей её больше)
 EMOTION_WORDS = [
     "нравится", "люблю", "ненавижу", "обожаю", "бесит", "раздражает",
@@ -688,8 +741,123 @@ def _casual_density(text: str) -> float:
     cnt = sum(low.count(c) for c in CASUAL_MARKERS)
     return cnt / len(words) * 100
 
+def _burstiness(sent_lens: list) -> float:
+    """B-коэффициент: чередование коротких и длинных предложений.
+    У людей больше, у ИИ почти нет."""
+    if len(sent_lens) < 3:
+        return 0.0
+    # доля смен между «длинными» и «короткими»
+    avg = sum(sent_lens) / len(sent_lens)
+    long_s = sum(1 for x in sent_lens if x > avg * 1.3)
+    short_s = sum(1 for x in sent_lens if x < avg * 0.7)
+    transitions = 0
+    for i in range(1, len(sent_lens)):
+        if (sent_lens[i-1] > avg) != (sent_lens[i] > avg):
+            transitions += 1
+    return transitions / (len(sent_lens) - 1)
+
+
+def _entropy(text: str) -> float:
+    """Энтропия Шеннона по буквам. У людей выше."""
+    if not text:
+        return 0.0
+    letters = [c.lower() for c in text if c.isalpha()]
+    if not letters:
+        return 0.0
+    freq = Counter(letters)
+    total = len(letters)
+    ent = 0.0
+    for cnt in freq.values():
+        p = cnt / total
+        if p > 0:
+            ent -= p * math.log2(p)
+    return ent
+
+
+def _hapax_ratio(words: list) -> float:
+    """Доля слов, встречающихся 1 раз. У людей выше."""
+    if not words:
+        return 0.0
+    counts = Counter(words)
+    hapax = sum(1 for c in counts.values() if c == 1)
+    return hapax / len(counts) if counts else 0.0
+
+
+def _zipf_deviation(words: list) -> float:
+    """Отклонение от закона Ципфа. У людей меньше."""
+    if len(words) < 20:
+        return 0.0
+    freq = Counter(words)
+    counts = sorted(freq.values(), reverse=True)
+    # ожидаемая частота: f(n) ~ 1/n
+    n = len(counts)
+    deviations = 0.0
+    for i, c in enumerate(counts):
+        rank = i + 1
+        expected = counts[0] / rank
+        if expected > 0:
+            deviations += abs(c - expected) / expected
+    return deviations / n if n else 0.0
+
+
+def _function_word_density(text: str) -> dict:
+    """Плотность функциональных слов разных типов."""
+    words = _words(text)
+    if not words:
+        return {}
+    total = len(words)
+    result = {}
+    for cat, lst in FUNCTION_WORDS.items():
+        cnt = sum(words.count(w) for w in lst)
+        result[cat] = round(cnt / total * 100, 2)
+    return result
+
+
+def _human_markers(text: str) -> int:
+    """Считает «человеческие» маркеры — то, чего у ИИ почти нет."""
+    low = text.lower()
+    return sum(len(re.findall(p, low, re.IGNORECASE)) for p in HUMAN_MARKERS)
+
+
+def _rhetorical_score(text: str) -> float:
+    """Разнообразие риторических приёмов."""
+    score = 0.0
+    for cat, patterns in RHETORICAL.items():
+        cnt = sum(len(re.findall(p, text, re.IGNORECASE)) for p in patterns)
+        if cnt > 0:
+            score += 1.0
+    return score / len(RHETORICAL)
+
+
+def _clause_complexity(text: str) -> float:
+    """Среднее число придаточных на предложение."""
+    sentences = _sentences(text)
+    if not sentences:
+        return 0.0
+    sub_markers = r"\b(что|чтобы|если|когда|пока|хотя|поскольку|так\s+как|потому\s+что|котор[а-яё]+|где|куда|откуда)\b"
+    total_clauses = sum(len(re.findall(sub_markers, s, re.IGNORECASE)) for s in sentences)
+    return total_clauses / len(sentences)
+
+
+def _positional_drift(text: str) -> float:
+    """Как меняется длина предложений от начала к концу.
+    У людей обычно есть развитие, у ИИ — плато."""
+    sentences = _sentences(text)
+    if len(sentences) < 6:
+        return 0.0
+    half = len(sentences) // 2
+    first = [len(_words(s)) for s in sentences[:half]]
+    second = [len(_words(s)) for s in sentences[half:]]
+    avg1 = sum(first) / len(first) if first else 0
+    avg2 = sum(second) / len(second) if second else 0
+    if avg1 == 0:
+        return 0.0
+    return abs(avg2 - avg1) / avg1
+
 def check_ai_score(text: str) -> dict:
-    """Расширенная эвристическая оценка «ИИ-манеры». 0-100."""
+    """Расширенная оценка «ИИ-манеры». 30+ метрик.
+    Учитывает burstiness, энтропию, hapax, Zipf, human-маркеры,
+    риторику, синтаксис. Цель — имитировать работу детекторов."""
     if not text or len(text) < 80:
         return {"available": True, "score": 0, "label": "слишком короткий текст",
                 "features": {}, "notes": []}
@@ -705,47 +873,74 @@ def check_ai_score(text: str) -> dict:
     score = 0.0
     low = clean.lower()
 
-        # === НОВЫЕ МЕТРИКИ ===
-    hapax = _hapax_ratio(words)
-    tri_repeat = _trigram_repeat_ratio(words)
-    entropy = _entropy(clean)
-    punct_var = _punctuation_variety(clean)
-    emot = _emotion_density(clean)
-    discourse = _discourse_density(clean)
-    word_stdev = _word_length_stdev(words)
-    opener_div = _sentence_opener_diversity(sentences)
-    casual = _casual_density(clean)
-
-    # ---- 1. Разброс длины предложений ----
+    # === БАЗОВЫЕ ===
     sent_lens = [len(_words(s)) for s in sentences]
     avg_sent = sum(sent_lens) / len(sent_lens)
     sd = _stdev(sent_lens)
     cv = sd / avg_sent if avg_sent else 0
-    if cv < 0.3:
-        score += 12; notes.append(f"Очень однородные предложения (cv={cv:.2f})")
-    elif cv < 0.45:
-        score += 8; notes.append(f"Умеренно однородные предложения (cv={cv:.2f})")
-    elif cv < 0.6:
-        score += 3
-    else:
-        notes.append(f"Живой разброс предложений (cv={cv:.2f})")
-
-    # ---- 2. Средняя длина слова ----
     avg_wl = sum(len(w) for w in words) / len(words)
-    if avg_wl > 7.5:
-        score += 10; notes.append(f"Очень длинные слова ({avg_wl:.1f} букв)")
-    elif avg_wl > 6.5:
-        score += 5; notes.append(f"Длинные слова ({avg_wl:.1f} букв)")
-
-    # ---- 3. Лексическое разнообразие (Guiraud index) ----
     uniq = len(set(words))
     guiraud = uniq / math.sqrt(len(words)) if words else 0
-    if guiraud < 8:
-        score += 8; notes.append(f"Низкое разнообразие лексики (Guiraud={guiraud:.1f})")
-    elif guiraud < 12:
+
+    # === НОВЫЕ ===
+    burst = _burstiness(sent_lens)
+    ent = _entropy(clean)
+    hapax = _hapax_ratio(words)
+    zipf_dev = _zipf_deviation(words)
+    human_cnt = _human_markers(clean)
+    rhet = _rhetorical_score(clean)
+    clauses = _clause_complexity(clean)
+    drift = _positional_drift(clean)
+    func_dens = _function_word_density(clean)
+
+    # ---- 1. Burstiness (у ИИ ниже 0.3) ----
+    if burst < 0.2:
+        score += 12; notes.append(f"Очень ровный ритм (burstiness={burst:.2f})")
+    elif burst < 0.35:
+        score += 6; notes.append(f"Ровный ритм (burstiness={burst:.2f})")
+    elif burst > 0.55:
+        score -= 3; notes.append(f"Живой ритм (burstiness={burst:.2f}): −3")
+
+    # ---- 2. Разброс длины предложений ----
+    if cv < 0.3:
+        score += 10; notes.append(f"Очень однородные предложения (cv={cv:.2f})")
+    elif cv < 0.45:
+        score += 6
+    elif cv > 0.7:
+        score -= 2
+
+    # ---- 3. Hapax ratio ----
+    if hapax < 0.35:
+        score += 10; notes.append(f"Мало уникальных слов (hapax={hapax:.2f})")
+    elif hapax < 0.45:
+        score += 5
+    elif hapax > 0.6:
+        score -= 4; notes.append(f"Богатая лексика (hapax={hapax:.2f}): −4")
+
+    # ---- 4. Энтропия ----
+    if ent < 4.2:
+        score += 8; notes.append(f"Низкая энтропия ({ent:.2f})")
+    elif ent < 4.4:
+        score += 4
+    elif ent > 4.7:
+        score -= 3
+
+    # ---- 5. Zipf-отклонение ----
+    if zipf_dev > 1.5:
+        score += 8; notes.append(f"Патологическое распределение слов (Zipf-dev={zipf_dev:.2f})")
+    elif zipf_dev > 0.8:
         score += 4
 
-    # ---- 4. ПАТТЕРНЫ ИИ (расширенный список) ----
+    # ---- 6. Абстрактная лексика ----
+    abstract_count = sum(1 for w in words
+                         if any(w.startswith(s) for s in ABSTRACT_STEMS))
+    abs_density = abstract_count / len(words) * 100
+    if abs_density > 14:
+        score += 10; notes.append(f"Много абстрактных слов ({abs_density:.0f}%)")
+    elif abs_density > 9:
+        score += 5
+
+    # ---- 7. ПАТТЕРНЫ ИИ ----
     pattern_hits = []
     pattern_score = 0
     for rx, weight, name in AI_PATTERNS:
@@ -753,166 +948,70 @@ def check_ai_score(text: str) -> dict:
         if matches:
             pattern_score += weight * min(len(matches), 3)
             pattern_hits.append(f"{name}×{len(matches)}")
-    pattern_score = min(pattern_score, 50)
+    pattern_score = min(pattern_score, 45)
     score += pattern_score
     if pattern_hits:
         notes.append(f"Паттерны ИИ (+{pattern_score}): " + "; ".join(pattern_hits[:10]))
     else:
         notes.append("Характерных паттернов ИИ не найдено")
 
-    # ---- 5. Длинные тире ----
+    # ---- 8. Тире, запятые ----
     em_dashes = clean.count("—") + clean.count("–")
-    dash_ratio = em_dashes / len(sentences)
-    if dash_ratio > 0.35:
-        score += 10; notes.append(f"Много длинных тире ({em_dashes})")
-    elif dash_ratio > 0.15:
-        score += 4
+    if em_dashes / max(1, len(sentences)) > 0.3:
+        score += 8; notes.append(f"Много длинных тире ({em_dashes})")
 
-    # ---- 6. Плотность запятых и союзов ----
-    comma_density = clean.count(",") / len(sentences)
+    comma_density = clean.count(",") / max(1, len(sentences))
     if comma_density > 4:
-        score += 8; notes.append(f"Плотные запятые ({comma_density:.1f}/предл.)")
-    elif comma_density > 3:
-        score += 4
+        score += 6; notes.append(f"Плотные запятые ({comma_density:.1f}/предл.)")
 
-    # ---- 7. Абстрактная лексика ----
-    abstract_count = sum(1 for w in words
-                         if any(w.startswith(s) for s in ABSTRACT_STEMS))
-    abs_density = abstract_count / len(words) * 100
-    if abs_density > 14:
-        score += 12; notes.append(f"Очень много абстрактных слов ({abs_density:.0f}%)")
-    elif abs_density > 9:
-        score += 6; notes.append(f"Много абстрактных слов ({abs_density:.0f}%)")
-
-    # ---- 8. Пассивные конструкции и модальность ----
-    passive = len(re.findall(r"\b(является|представляет|осуществляется|проводится|выполняется|был[аио]?\s+\w+н[ыоа])\b", low))
-    modal = len(re.findall(r"\b(важно|необходимо|следует|нужно|стоит|должен|может|позволяет)\b", low))
+    # ---- 9. Модальность и пассив ----
+    passive = len(re.findall(r"\b(является|представляет|осуществляется|проводится|выполняется)\b", low))
+    modal = len(re.findall(r"\b(важно|необходимо|следует|нужно|стоит)\b", low))
     modal_ratio = modal / max(1, len(sentences))
     if passive > 3:
-        score += 8; notes.append(f"Пассивные конструкции ({passive})")
+        score += 6; notes.append(f"Пассивные конструкции ({passive})")
     if modal_ratio > 0.7:
-        score += 6; notes.append(f"Модальные глаголы ({modal_ratio:.1f}/предл.)")
+        score += 5; notes.append(f"Много модальных ({modal_ratio:.1f}/предл.)")
 
-    # ---- 9. Триады ----
+    # ---- 10. Триады ----
     triads = len(re.findall(r"[а-яё]{3,},\s+[а-яё]{3,}\s+(и|или)\s+[а-яё]{3,}", low))
     if triads >= 3:
-        score += 8; notes.append(f"Перечисления-триады ({triads})")
+        score += 6; notes.append(f"Триады ({triads})")
     elif triads >= 1:
-        score += 3
+        score += 2
 
-    # ---- 10. Повторы начал ----
-    firsts = []
-    for s in sentences:
-        w = _words(s)
-        if w: firsts.append(w[0])
-    if firsts:
-        repeats = len(firsts) - len(set(firsts))
-        ratio = repeats / len(firsts)
-        if ratio > 0.35:
-            score += 8; notes.append(f"Сильные повторы начал ({repeats}/{len(firsts)})")
-        elif ratio > 0.2:
-            score += 4
+    # ---- 11. Синтаксическая сложность ----
+    if clauses < 0.4 and len(sentences) > 4:
+        score += 5; notes.append(f"Мало придаточных ({clauses:.2f}/предл.)")
 
-    # ---- 11. Однородные абзацы ----
-    paragraphs = [p for p in re.split(r"\n\s*\n", clean) if p.strip()]
-    if len(paragraphs) >= 3:
-        plens = [len(_words(p)) for p in paragraphs]
-        pavg = sum(plens) / len(plens)
-        psd = _stdev(plens)
-        pcv = psd / pavg if pavg else 0
-        if pcv < 0.3:
-            score += 8; notes.append(f"Абзацы почти одинаковые (cv={pcv:.2f})")
-        elif pcv < 0.45:
-            score += 4
+    # ---- 12. Риторика ----
+    if rhet < 0.25 and len(sentences) > 4:
+        score += 6; notes.append("Нет риторических приёмов")
+    elif rhet > 0.5:
+        score -= 3
 
-    # ---- 12. Личные местоимения (у ИИ их меньше) ----
-    personal = len(re.findall(r"\b(я|мы|мне|нам|меня|нас|мой|наш|моя|наша)\b", low))
-    personal_ratio = personal / max(1, len(sentences))
-    if personal_ratio < 0.05 and len(sentences) > 5:
-        score += 6; notes.append("Мало личных местоимений (безликий стиль)")
+    # ---- 13. Позиционный дрейф ----
+    if drift < 0.05 and len(sentences) > 8:
+        score += 6; notes.append("Плоский ритм (нет развития)")
 
-    # ---- 13. N-граммы (частотные ИИ-обороты) ----
-    ai_bigrams = [
-        "важно отметить", "следует отметить", "таким образом", "более того",
-        "кроме того", "в свою очередь", "в конечном счёте", "на сегодняшний",
-        "в современном мире", "данный подход", "играет важную", "необходимо учитывать",
-        "стоит подчеркнуть", "в данной статье", "в заключение", "в рамках данного",
-    ]
-    bigram_hits = sum(1 for b in ai_bigrams if b in low)
-    if bigram_hits >= 3:
-        score += 10; notes.append(f"Много ИИ-штампов ({bigram_hits})")
-    elif bigram_hits >= 1:
-        score += 4
+    # ---- 14. Функциональные слова ----
+    if func_dens:
+        if func_dens.get("particles", 0) < 1.5:
+            score += 5; notes.append("Мало частиц (же, ведь, вот)")
+        if func_dens.get("conjunctions", 0) < 3:
+            score += 3
 
-    # ---- ШТРАФЫ ----
-    casual_count = 0
-    for c in ["блин", "короче", "прикольно", "классно", "хз",
-              "щас", "вообще-то", "как-то", "ну,"]:
-        casual_count += len(re.findall(r"\b" + re.escape(c.strip().rstrip(",")) + r"\b", low))
-    if casual_count > 0:
-        penalty = min(15, casual_count * 3)
+    # ---- 15. ШТРАФЫ ЗА ЧЕЛОВЕЧНОСТЬ ----
+    if human_cnt > 0:
+        penalty = min(20, human_cnt * 3)
         score -= penalty
-        notes.append(f"Разговорные обороты: −{penalty}")
+        notes.append(f"Человеческие маркеры ({human_cnt}): −{penalty}")
+    else:
+        score += 3; notes.append("Нет человеческих маркеров: +3")
 
     emoji_count = sum(1 for c in text if ord(c) > 0x1F000)
     if emoji_count > 0:
         score -= min(10, emoji_count)
-        notes.append(f"Эмодзи: −{min(10, emoji_count)}")
-
-        # ---- 14. Hapax ratio (у людей выше) ----
-    if hapax < 0.35:
-        score += 8; notes.append(f"Мало уникальных слов (hapax={hapax:.2f})")
-    elif hapax < 0.45:
-        score += 4
-
-    # ---- 15. Триграммы (повторы у ИИ) ----
-    if tri_repeat > 0.08:
-        score += 8; notes.append(f"Повторяющиеся триграммы ({tri_repeat:.0%})")
-    elif tri_repeat > 0.04:
-        score += 4
-
-    # ---- 16. Энтропия текста ----
-    # русский: у людей 4.5-5.0, у ИИ 4.0-4.3
-    if entropy < 4.2:
-        score += 6; notes.append(f"Низкая энтропия ({entropy:.2f}) — текст предсказуем")
-    elif entropy < 4.4:
-        score += 3
-
-    # ---- 17. Разнообразие пунктуации ----
-    if punct_var < 0.3:
-        score += 6; notes.append(f"Скудная пунктуация ({punct_var:.0%})")
-    elif punct_var < 0.45:
-        score += 3
-
-    # ---- 18. Эмоциональность (у ИИ мало) ----
-    if emot < 0.3 and len(words) > 100:
-        score += 6; notes.append("Почти нет эмоциональной лексики")
-    elif emot < 0.8 and len(words) > 100:
-        score += 3
-
-    # ---- 19. Дискурсивные маркеры (у ИИ плотнее) ----
-    if discourse > 1.5:
-        score += 8; notes.append(f"Много структурных маркеров ({discourse:.1f}/100 слов)")
-    elif discourse > 0.8:
-        score += 4
-
-    # ---- 20. Разброс длины слов ----
-    if word_stdev < 2.0:
-        score += 5; notes.append(f"Однородные слова (σ={word_stdev:.1f})")
-    elif word_stdev < 2.5:
-        score += 2
-
-    # ---- 21. Разнообразие начал ----
-    if opener_div < 0.5:
-        score += 7; notes.append(f"Однотипные начала ({opener_div:.0%})")
-    elif opener_div < 0.7:
-        score += 3
-
-    # ---- 22. Разговорные обороты (штраф) ----
-    if casual > 0.5:
-        penalty = min(10, int(casual * 3))
-        score -= penalty
-        notes.append(f"Разговорный стиль: −{penalty}")
 
     score = max(0, min(100, round(score)))
 
@@ -928,18 +1027,18 @@ def check_ai_score(text: str) -> dict:
         "features": {
             "предложений": len(sentences),
             "слов": len(words),
-            "ср. длина предл.": round(avg_sent, 1),
+            "burstiness": round(burst, 2),
+            "энтропия": round(ent, 2),
+            "hapax": round(hapax, 2),
+            "Zipf-dev": round(zipf_dev, 2),
             "разброс предл.": round(cv, 2),
             "ср. длина слова": round(avg_wl, 2),
-            "разнообразие (Guiraud)": round(guiraud, 1),
-            "hapax": round(hapax, 2),
-            "энтропия": round(entropy, 2),
-            "пунктуация": f"{punct_var:.0%}",
-            "эмоции": round(emot, 2),
-            "дискурс": round(discourse, 2),
-            "σ слов": round(word_stdev, 2),
-            "начал": f"{opener_div:.0%}",
-            "паттернов": len(pattern_hits),
+            "Guiraud": round(guiraud, 1),
+            "придаточных": round(clauses, 2),
+            "риторика": f"{rhet:.0%}",
+            "человеческих": human_cnt,
+            "паттернов ИИ": len(pattern_hits),
+            "абстрактных": f"{abs_density:.0f}%",
         },
         "notes": notes,
     }
@@ -1811,15 +1910,19 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _send(self, code, body, ctype="text/html; charset=utf-8"):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        # CORS — разрешаем запросы из нативного окна (origin = null)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            # CORS — разрешаем запросы из нативного окна (origin = null)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # клиент отключился до ответа — это не ошибка
+            pass
 
     def _json(self, code, obj):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
@@ -2168,18 +2271,32 @@ def check_ollama_running() -> bool:
         return False
 
 
+_model_cache = {"time": 0, "result": False, "model": None}
+
 def check_model_installed(model: str) -> bool:
-    """Проверяет, что модель скачана, через `ollama list`."""
+    """Проверяет, что модель скачана, через `ollama list`.
+    Кэширует результат на 30 секунд, чтобы не дёргать subprocess постоянно."""
+    import time as _time
+    now = _time.time()
+    if (now - _model_cache["time"] < 30
+            and _model_cache["model"] == model):
+        return _model_cache["result"]
+
     if not check_ollama_installed():
+        _model_cache.update(time=now, result=False, model=model)
         return False
+
     binary = _which_ollama()
     try:
         result = subprocess.run(
             [binary, "list"],
             capture_output=True, text=True, timeout=5,
         )
-        return model in result.stdout
+        found = model in result.stdout
+        _model_cache.update(time=now, result=found, model=model)
+        return found
     except Exception:
+        _model_cache.update(time=now, result=False, model=model)
         return False
 
 
