@@ -34,7 +34,10 @@ HAS_FITZ = True
 from docx import Document
 HAS_DOCX = True
 
+import ollama
+HAS_OLLAMA = True
 
+OLLAMA_MODEL = "qwen2.5:3b"
 
 # =============================================================
 #  ЛОГИКА ОЧИСТКИ ТЕКСТА
@@ -354,16 +357,13 @@ def _stdev(xs: list) -> float:
     var = sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
     return math.sqrt(var)
 
-
 def check_ai_score(text: str) -> dict:
-    """Эвристическая оценка «ИИ-манеры». 0-100, где 100 — сильные признаки ИИ."""
+    """Расширенная эвристическая оценка «ИИ-манеры». 0-100."""
     if not text or len(text) < 80:
         return {"available": True, "score": 0, "label": "слишком короткий текст",
                 "features": {}, "notes": []}
 
-    # убираем markdown-разметку, чтобы не ломать анализ предложений
     clean = re.sub(r"[*_`#>]+", "", text)
-
     sentences = _sentences(clean)
     words = _words(clean)
     if not words or not sentences:
@@ -374,92 +374,135 @@ def check_ai_score(text: str) -> dict:
     score = 0.0
     low = clean.lower()
 
-    # ---- 1. Однородность длины предложений ----
+    # ---- 1. Разброс длины предложений ----
     sent_lens = [len(_words(s)) for s in sentences]
     avg_sent = sum(sent_lens) / len(sent_lens)
     sd = _stdev(sent_lens)
     cv = sd / avg_sent if avg_sent else 0
     if cv < 0.3:
-        score += 15; notes.append(f"Однородные предложения (cv={cv:.2f})")
-    elif cv < 0.5:
-        score += 10; notes.append(f"Умеренно однородные предложения (cv={cv:.2f})")
-    elif cv < 0.65:
-        score += 4; notes.append(f"Средний разброс предложений (cv={cv:.2f})")
+        score += 12; notes.append(f"Очень однородные предложения (cv={cv:.2f})")
+    elif cv < 0.45:
+        score += 8; notes.append(f"Умеренно однородные предложения (cv={cv:.2f})")
+    elif cv < 0.6:
+        score += 3
     else:
         notes.append(f"Живой разброс предложений (cv={cv:.2f})")
 
     # ---- 2. Средняя длина слова ----
     avg_wl = sum(len(w) for w in words) / len(words)
-    if avg_wl > 7.0:
-        score += 10; notes.append(f"Длинные слова ({avg_wl:.1f} букв)")
-    elif avg_wl > 6.2:
-        score += 5; notes.append(f"Средние слова ({avg_wl:.1f} букв)")
+    if avg_wl > 7.5:
+        score += 10; notes.append(f"Очень длинные слова ({avg_wl:.1f} букв)")
+    elif avg_wl > 6.5:
+        score += 5; notes.append(f"Длинные слова ({avg_wl:.1f} букв)")
 
-    # ---- 3. ПАТТЕРНЫ ИИ ----
+    # ---- 3. Лексическое разнообразие (Guiraud index) ----
+    uniq = len(set(words))
+    guiraud = uniq / math.sqrt(len(words)) if words else 0
+    if guiraud < 8:
+        score += 8; notes.append(f"Низкое разнообразие лексики (Guiraud={guiraud:.1f})")
+    elif guiraud < 12:
+        score += 4
+
+    # ---- 4. ПАТТЕРНЫ ИИ (расширенный список) ----
     pattern_hits = []
     pattern_score = 0
     for rx, weight, name in AI_PATTERNS:
         matches = re.findall(rx, low)
         if matches:
-            pattern_score += weight * min(len(matches), 2)
+            pattern_score += weight * min(len(matches), 3)
             pattern_hits.append(f"{name}×{len(matches)}")
-    pattern_score = min(pattern_score, 45)   # потолок, чтобы не перекосить
+    pattern_score = min(pattern_score, 50)
     score += pattern_score
     if pattern_hits:
-        notes.append(f"Паттерны ИИ (+{pattern_score}): " + "; ".join(pattern_hits[:8]))
+        notes.append(f"Паттерны ИИ (+{pattern_score}): " + "; ".join(pattern_hits[:10]))
     else:
         notes.append("Характерных паттернов ИИ не найдено")
 
-    # ---- 4. Длинные тире ----
+    # ---- 5. Длинные тире ----
     em_dashes = clean.count("—") + clean.count("–")
     dash_ratio = em_dashes / len(sentences)
-    if dash_ratio > 0.3:
-        score += 12; notes.append(f"Много длинных тире ({em_dashes})")
+    if dash_ratio > 0.35:
+        score += 10; notes.append(f"Много длинных тире ({em_dashes})")
     elif dash_ratio > 0.15:
-        score += 5; notes.append(f"Есть длинные тире ({em_dashes})")
+        score += 4
 
-    # ---- 5. Плотность абстрактных слов ----
+    # ---- 6. Плотность запятых и союзов ----
+    comma_density = clean.count(",") / len(sentences)
+    if comma_density > 4:
+        score += 8; notes.append(f"Плотные запятые ({comma_density:.1f}/предл.)")
+    elif comma_density > 3:
+        score += 4
+
+    # ---- 7. Абстрактная лексика ----
     abstract_count = sum(1 for w in words
                          if any(w.startswith(s) for s in ABSTRACT_STEMS))
     abs_density = abstract_count / len(words) * 100
-    if abs_density > 12:
-        score += 12; notes.append(f"Много абстрактных слов ({abs_density:.0f}%)")
-    elif abs_density > 8:
-        score += 6; notes.append(f"Умеренно абстрактная лексика ({abs_density:.0f}%)")
+    if abs_density > 14:
+        score += 12; notes.append(f"Очень много абстрактных слов ({abs_density:.0f}%)")
+    elif abs_density > 9:
+        score += 6; notes.append(f"Много абстрактных слов ({abs_density:.0f}%)")
 
-    # ---- 6. Триады (X, Y и Z) ----
+    # ---- 8. Пассивные конструкции и модальность ----
+    passive = len(re.findall(r"\b(является|представляет|осуществляется|проводится|выполняется|был[аио]?\s+\w+н[ыоа])\b", low))
+    modal = len(re.findall(r"\b(важно|необходимо|следует|нужно|стоит|должен|может|позволяет)\b", low))
+    modal_ratio = modal / max(1, len(sentences))
+    if passive > 3:
+        score += 8; notes.append(f"Пассивные конструкции ({passive})")
+    if modal_ratio > 0.7:
+        score += 6; notes.append(f"Модальные глаголы ({modal_ratio:.1f}/предл.)")
+
+    # ---- 9. Триады ----
     triads = len(re.findall(r"[а-яё]{3,},\s+[а-яё]{3,}\s+(и|или)\s+[а-яё]{3,}", low))
     if triads >= 3:
-        score += 10; notes.append(f"Перечисления-триады ({triads})")
+        score += 8; notes.append(f"Перечисления-триады ({triads})")
     elif triads >= 1:
-        score += 5; notes.append(f"Перечисления-триады ({triads})")
+        score += 3
 
-    # ---- 7. Риторические вопросы ----
-    q_count = sum(1 for s in sentences if s.strip().endswith("?"))
-    if q_count > 0:
-        score += 4; notes.append(f"Риторические вопросы ({q_count})")
-
-    # ---- 8. Повторяющиеся начала предложений ----
+    # ---- 10. Повторы начал ----
     firsts = []
     for s in sentences:
         w = _words(s)
         if w: firsts.append(w[0])
     if firsts:
         repeats = len(firsts) - len(set(firsts))
-        if repeats / len(firsts) > 0.2:
-            score += 8; notes.append(f"Повторяющиеся начала ({repeats}/{len(firsts)})")
+        ratio = repeats / len(firsts)
+        if ratio > 0.35:
+            score += 8; notes.append(f"Сильные повторы начал ({repeats}/{len(firsts)})")
+        elif ratio > 0.2:
+            score += 4
 
-    # ---- 9. Однородные абзацы ----
+    # ---- 11. Однородные абзацы ----
     paragraphs = [p for p in re.split(r"\n\s*\n", clean) if p.strip()]
     if len(paragraphs) >= 3:
         plens = [len(_words(p)) for p in paragraphs]
         pavg = sum(plens) / len(plens)
         psd = _stdev(plens)
         pcv = psd / pavg if pavg else 0
-        if pcv < 0.35:
-            score += 10; notes.append(f"Абзацы близкой длины (cv={pcv:.2f})")
+        if pcv < 0.3:
+            score += 8; notes.append(f"Абзацы почти одинаковые (cv={pcv:.2f})")
+        elif pcv < 0.45:
+            score += 4
 
-    # ---- 10. Штрафы (только явные маркеры живого стиля) ----
+    # ---- 12. Личные местоимения (у ИИ их меньше) ----
+    personal = len(re.findall(r"\b(я|мы|мне|нам|меня|нас|мой|наш|моя|наша)\b", low))
+    personal_ratio = personal / max(1, len(sentences))
+    if personal_ratio < 0.05 and len(sentences) > 5:
+        score += 6; notes.append("Мало личных местоимений (безликий стиль)")
+
+    # ---- 13. N-граммы (частотные ИИ-обороты) ----
+    ai_bigrams = [
+        "важно отметить", "следует отметить", "таким образом", "более того",
+        "кроме того", "в свою очередь", "в конечном счёте", "на сегодняшний",
+        "в современном мире", "данный подход", "играет важную", "необходимо учитывать",
+        "стоит подчеркнуть", "в данной статье", "в заключение", "в рамках данного",
+    ]
+    bigram_hits = sum(1 for b in ai_bigrams if b in low)
+    if bigram_hits >= 3:
+        score += 10; notes.append(f"Много ИИ-штампов ({bigram_hits})")
+    elif bigram_hits >= 1:
+        score += 4
+
+    # ---- ШТРАФЫ ----
     casual_count = 0
     for c in ["блин", "короче", "прикольно", "классно", "хз",
               "щас", "вообще-то", "как-то", "ну,"]:
@@ -491,11 +534,146 @@ def check_ai_score(text: str) -> dict:
             "ср. длина предл.": round(avg_sent, 1),
             "разброс предл.": round(cv, 2),
             "ср. длина слова": round(avg_wl, 2),
+            "разнообразие (Guiraud)": round(guiraud, 1),
             "паттернов ИИ": len(pattern_hits),
             "длинных тире": em_dashes,
             "абстрактных": f"{abs_density:.0f}%",
+            "пассивных": passive,
+            "модальных": modal,
         },
         "notes": notes,
+    }
+
+def check_ai_with_llm(text: str) -> dict:
+    """Проверка ИИ через локальную модель Ollama. Точнее эвристик, но медленнее."""
+    if not HAS_OLLAMA:
+        return {"error": "Ollama не установлена. Выполни: pip install ollama", "available": False}
+
+    if not text or len(text) < 100:
+        return {"score": 0, "label": "слишком короткий текст", "available": True}
+
+    # обрезаем до разумного размера, чтобы модель не захлебнулась
+    sample = text[:6000]
+
+    prompt = (
+        "Ты — эксперт по анализу текстов. Оцени от 0 до 100, насколько этот текст "
+        "похож на сгенерированный искусственным интеллектом (нейросетью).\n\n"
+        "Критерии:\n"
+        "- 0-25: написан человеком, живой язык, личный опыт, ошибки\n"
+        "- 26-50: смешанный, есть и человеческие, и машинные черты\n"
+        "- 51-75: заметны следы ИИ, шаблонные конструкции, гладкий стиль\n"
+        "- 76-100: почти наверняка ИИ, идеально гладкий, шаблонный, безличный\n\n"
+        f"Текст:\n{sample}\n\n"
+        "Ответь ТОЛЬКО числом от 0 до 100, без объяснений и знаков."
+    )
+
+    try:
+        response = ollama.chat(
+            model=OLLAMA_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.1},
+        )
+        raw = response["message"]["content"].strip()
+        # вытаскиваем число из ответа
+        m = re.search(r"\d+", raw)
+        score = int(m.group()) if m else 50
+        score = max(0, min(100, score))
+
+        if score <= 25:      label = "скорее человек"
+        elif score <= 50:    label = "смешанный"
+        elif score <= 75:    label = "есть следы ИИ"
+        else:                label = "сильные следы ИИ"
+
+        return {
+            "available": True,
+            "score": score,
+            "label": label,
+            "features": {"модель": OLLAMA_MODEL, "метод": "LLM"},
+            "notes": [f"Оценка через {OLLAMA_MODEL}. Точнее эвристик, но медленнее."],
+        }
+    except Exception as e:
+        return {"error": f"Ollama недоступна: {e}", "available": False}
+
+def paraphrase_with_llm(text: str) -> dict:
+    if not HAS_OLLAMA:
+        raise RuntimeError("Ollama не установлена")
+
+    paragraphs = [p for p in text.split("\n") if p.strip()]
+    if not paragraphs:
+        return {"paraphrased": text, "replacements": 0, "total_swaps": 0,
+                "chars_before": len(text), "chars_after": len(text)}
+
+    # эти строки — служебный мусор, пропускаем
+    SKIP_MARKERS = [
+        "правила", "исходный текст", "переписанный текст",
+        "сохраняю весь смысл", "отвечай только", "избегай штампов",
+        "язык — русский", "не сокращай",
+    ]
+
+    def is_garbage(p: str) -> bool:
+        low = p.lower().strip()
+        if len(low) < 5:
+            return True
+        for m in SKIP_MARKERS:
+            if m in low:
+                return True
+        # строки, начинающиеся с "1. ", "2. " и т.п. — это пункты правил
+        if re.match(r"^\d+\.\s", low):
+            return True
+        return False
+
+    out_parts = []
+    for para in paragraphs:
+        if is_garbage(para) or len(para) < 30:
+            out_parts.append(para)
+            continue
+
+        # максимально короткий промпт
+        prompt = (
+            "Перепиши этот текст другими словами на русском. "
+            "Сохрани смысл. Ответь только текстом.\n\n"
+            f"{para}"
+        )
+
+        try:
+            response = ollama.chat(
+                model=OLLAMA_MODEL,
+                messages=[
+                    {"role": "system", "content":
+                     "Ты — редактор. Отвечай только готовым текстом, без правил и пояснений."},
+                    {"role": "user", "content": prompt},
+                ],
+                options={
+                    "temperature": 0.6,
+                    "top_p": 0.9,
+                    "repeat_penalty": 1.15,
+                    "num_predict": max(150, len(para) * 2),
+                },
+            )
+            new_para = response["message"]["content"].strip()
+
+            # отсекаем префиксы
+            new_para = re.sub(
+                r"^(переписанный текст|ответ|вот|текст)\s*:?\s*",
+                "", new_para, flags=re.IGNORECASE
+            ).strip()
+
+            # если модель вернула тот же текст или мусор — оставляем оригинал
+            if not new_para or new_para == para or len(new_para) < len(para) * 0.4:
+                new_para = para
+
+            out_parts.append(new_para)
+        except Exception:
+            out_parts.append(para)
+
+    result = "\n\n".join(out_parts)
+    return {
+        "paraphrased": result,
+        "replacements": 1,
+        "total_swaps": len(paragraphs),
+        "chars_before": len(text),
+        "chars_after": len(result),
+        "method": "llm",
     }
 
 def find_ai_sentences(text: str) -> dict:
@@ -648,21 +826,16 @@ def build_pdf(text: str) -> bytes:
         out = out.encode("latin-1")
     return bytes(out)
 
-
 def clean_pdf_preserve(pdf_bytes: bytes,
                        aggressive: bool = False,
                        font_preset: str = "Auto",
                        size_override=None) -> bytes:
-    """
-    Чистит PDF, сохраняя структуру.
-    font_preset: 'Auto' или ключ из PRESET_FONTS
-    size_override: None (авто) или число пт
-    """
+    """Чистит PDF, максимально сохраняя структуру."""
     if not HAS_FITZ:
         raise RuntimeError("PyMuPDF не установлен. Выполни: pip install pymupdf")
 
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    touched_total = 0
+    total_cleaned = 0
 
     for page in doc:
         text_dict = page.get_text("dict")
@@ -679,15 +852,17 @@ def clean_pdf_preserve(pdf_bytes: bytes,
                     if aggressive:
                         cleaned = cleaned.translate(LOOKALIKE_MAP)
                     if cleaned != original:
-                        to_clean.append((span, cleaned))
+                        to_clean.append((span, cleaned, original))
 
         if not to_clean:
             continue
-        touched_total += len(to_clean)
+        total_cleaned += len(to_clean)
 
-        for span, _ in to_clean:
+        # 1. Стираем старые спаны
+        for span, _, _ in to_clean:
             try:
-                page.add_redact_annot(fitz.Rect(span["bbox"]))
+                rect = fitz.Rect(span["bbox"])
+                page.add_redact_annot(rect)
             except Exception:
                 pass
         try:
@@ -695,28 +870,52 @@ def clean_pdf_preserve(pdf_bytes: bytes,
         except TypeError:
             page.apply_redactions()
 
-        for span, cleaned in to_clean:
+        # 2. Перерисовываем с сохранением ВСЕХ свойств
+        for span, cleaned, original in to_clean:
             try:
                 origin = span["origin"]
-                # размер: override или из оригинала
                 size = size_override if size_override else span.get("size", 11)
+
+                # цвет: RGB из int
                 color_int = span.get("color", 0)
                 r = ((color_int >> 16) & 255) / 255
                 g = ((color_int >> 8) & 255) / 255
                 b = (color_int & 255) / 255
 
+                # шрифт: авто или пресет
                 font_path = pick_font_for_span(span.get("font", ""), font_preset)
+                font_name = span.get("font", "").lower()
+
+                # флаги шрифта: bold, italic
+                flags = span.get("flags", 0)
+                is_bold = bool(flags & 16)   # 2^4
+                is_italic = bool(flags & 2)  # 2^1
+
                 kwargs = dict(fontsize=size, color=(r, g, b))
+
+                # PyMuPDF встроенные шрифты с bold/italic вариантами
                 if font_path:
                     kwargs["fontname"] = "cleanfont"
                     kwargs["fontfile"] = font_path
                 else:
-                    kwargs["fontname"] = "helv"
+                    base = "helv"
+                    if "times" in font_name:
+                        base = "tiro"
+                    elif "courier" in font_name or "mono" in font_name:
+                        base = "cour"
+                    if is_bold and is_italic:
+                        base += "bi"
+                    elif is_bold:
+                        base += "b"
+                    elif is_italic:
+                        base += "i"
+                    kwargs["fontname"] = base
 
                 page.insert_text(fitz.Point(*origin), cleaned, **kwargs)
             except Exception:
                 pass
 
+    # Чистим метаданные
     try:
         doc.set_metadata({
             "title": "", "author": "", "subject": "",
@@ -747,9 +946,9 @@ def extract_docx_text(data: bytes) -> str:
         parts.append(para.text)
     return "\n".join(parts)
 
-
 def clean_docx_preserve(data: bytes, aggressive: bool = False) -> bytes:
-    """Чистит .docx, сохраняя структуру: абзацы, стили, шрифты, таблицы."""
+    """Чистит .docx, сохраняя структуру максимально: абзацы, таблицы,
+    колонтитулы, сноски, комментарии, стили."""
     if not HAS_DOCX:
         raise RuntimeError("python-docx не установлен. Выполни: pip install python-docx")
 
@@ -757,6 +956,8 @@ def clean_docx_preserve(data: bytes, aggressive: bool = False) -> bytes:
     touched = 0
 
     def _clean(s):
+        if not s:
+            return s
         t = INVISIBLE.sub("", s)
         t = unicodedata.normalize("NFKC", t)
         t = t.translate(TYPO_MAP)
@@ -764,31 +965,49 @@ def clean_docx_preserve(data: bytes, aggressive: bool = False) -> bytes:
             t = t.translate(LOOKALIKE_MAP)
         return t
 
-    # обычные абзацы
-    for para in doc.paragraphs:
+    def _clean_runs_in_paragraph(para):
+        nonlocal touched
         for run in para.runs:
             original = run.text
+            if not original:
+                continue
             cleaned = _clean(original)
             if cleaned != original:
                 run.text = cleaned
                 touched += 1
 
-    # таблицы
-    for table in doc.tables:
+    # 1. Обычные абзацы
+    for para in doc.paragraphs:
+        _clean_runs_in_paragraph(para)
+
+    # 2. Таблицы (включая вложенные)
+    def _walk_table(table):
         for row in table.rows:
             for cell in row.cells:
                 for para in cell.paragraphs:
-                    for run in para.runs:
-                        original = run.text
-                        cleaned = _clean(original)
-                        if cleaned != original:
-                            run.text = cleaned
-                            touched += 1
+                    _clean_runs_in_paragraph(para)
+                for nested in cell.tables:
+                    _walk_table(nested)
+
+    for table in doc.tables:
+        _walk_table(table)
+
+    # 3. Колонтитулы (секции)
+    for section in doc.sections:
+        for header_footer in [section.header, section.footer,
+                              section.first_page_header, section.first_page_footer,
+                              section.even_page_header, section.even_page_footer]:
+            try:
+                for para in header_footer.paragraphs:
+                    _clean_runs_in_paragraph(para)
+                for table in header_footer.tables:
+                    _walk_table(table)
+            except Exception:
+                pass
 
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
-
 
 def build_docx(text: str) -> bytes:
     """Создаёт новый .docx из текста."""
@@ -883,6 +1102,8 @@ class Handler(BaseHTTPRequestHandler):
                 "pdf_write": HAS_FPDF,
                 "pdf_clean": HAS_FITZ,
                 "docx": HAS_DOCX,
+                "ollama": HAS_OLLAMA,
+                "ollama_model": OLLAMA_MODEL if HAS_OLLAMA else None,
             })
         else:
             self._send(404, b"not found", "text/plain")
@@ -913,6 +1134,24 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 data = json.loads(raw)
                 result = check_ai_score(data.get("text", ""))
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/check-ai-llm":
+            try:
+                data = json.loads(raw)
+                result = check_ai_with_llm(data.get("text", ""))
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/paraphrase-llm":
+            try:
+                data = json.loads(raw)
+                result = paraphrase_with_llm(data.get("text", ""))
                 self._json(200, result)
             except Exception as e:
                 traceback.print_exc()

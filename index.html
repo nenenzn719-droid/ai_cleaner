@@ -23,6 +23,18 @@
   h1 span { color: var(--accent2); }
   .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
 
+  .llm-note {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; margin-bottom: 14px;
+    background: rgba(251,191,36,.06);
+    border: 1px solid rgba(251,191,36,.25);
+    border-radius: 10px;
+    font-size: 13px; color: var(--muted);
+  }
+  .llm-note b { color: #fbbf24; font-weight: 600; }
+  .llm-note span { flex: 1; }
+  .llm-note.hidden { display: none; }
+
   /* === Toolbar === */
   .toolbar {
     display: flex; justify-content: space-between; align-items: center;
@@ -56,6 +68,15 @@
   button.btn-accent:hover:not(:disabled) { filter: brightness(1.08); }
 
   button.icon-btn { padding: 10px 14px; font-size: 16px; }
+
+  button.warn-soft {
+    border-color: rgba(251,191,36,.35);
+    color: #fbbf24;
+  }
+  button.warn-soft:hover:not(:disabled) {
+    background: rgba(251,191,36,.08);
+    border-color: rgba(251,191,36,.6);
+  }
 
   /* === Dropdown «Сохранить» === */
   .dropdown { position: relative; }
@@ -282,7 +303,9 @@
     <button id="openBtn" class="btn-primary">📂 Открыть файл</button>
     <button id="cleanBtn" class="btn-accent">✨ Очистить</button>
     <button id="paraphraseBtn" disabled title="Заменить штампы и клише">🔄 Перефразировать</button>
+    <button id="paraphraseLlmBtn" class="warn-soft" disabled title="⚠️ LLM-модель больше подходит для проверки, чем для перефраза. Качество перефраза зависит от модели — на qwen2.5:3b может быть неточным. Для лучшего результата используйте qwen2.5:7b.">🤖 Перефраз (LLM) ⚠️</button>
     <button id="checkAiBtn" disabled title="Оценить «машинность» текста">🔬 Проверить ИИ</button>
+    <button id="checkAiLlmBtn" disabled title="Проверить через локальную нейросеть (точнее, но медленнее)">🧠 Проверить (LLM)</button>
     <button id="diffBtn" disabled title="Сравнить исходник и результат">🔍 Сравнить</button>
     <button id="batchBtn" title="Обработать всю папку с файлами">📁 Пакетно</button>
   </div>
@@ -302,7 +325,11 @@
     <button id="optionsBtn" class="icon-btn" title="Настройки">⚙️</button>
   </div>
 </div>
-
+<div class="llm-note" id="llmNote">
+  <b>ℹ️ Про LLM-функции:</b>
+  <span>«🧠 Проверить (LLM)» — точная проверка через нейросеть (рекомендуется). «🤖 Перефраз (LLM)» — экспериментальная функция, качество зависит от модели. Для лучших результатов используйте qwen2.5:7b.</span>
+  <button class="mini" id="llmNoteClose" title="Скрыть">✕</button>
+</div>
 <div class="options-panel" id="optionsPanel">
   <label class="check" title="Заменять кириллические двойники латиницы — может ломать русский текст">
     <input type="checkbox" id="aggressive"> агрессивный режим
@@ -381,6 +408,7 @@
     <div class="item good">Сэкономлено: <b id="rSaved">0</b></div>
     <div class="item"><span class="pill" id="pillPdf">pdf: —</span></div>
     <div class="item"><span class="pill on">локально • офлайн</span></div>
+    <div class="item"><span class="pill" id="pillOllama">ollama: —</span></div>
   </div>
 
   <div class="ai-panel" id="aiPanel">
@@ -408,6 +436,12 @@
 
 <script>
 const $ = id => document.getElementById(id);
+
+const llmNote = document.getElementById("llmNote");
+const llmNoteClose = document.getElementById("llmNoteClose");
+if (llmNoteClose && llmNote) {
+  llmNoteClose.onclick = () => llmNote.classList.add("hidden");
+}
 
 // Горячие клавиши
 document.addEventListener("keydown", (e) => {
@@ -665,6 +699,16 @@ fetch(api("/ping")).then(r => r.json()).then(j => {
   if (j.pdf_clean) bits.push("clean");
   if (bits.length === 3) { p.textContent = "pdf: ok"; p.classList.add("on"); }
   else { p.textContent = "pdf: " + (bits.join("+") || "выкл"); p.classList.add("warn"); }
+  if (j.ollama) {
+  const p = $("pillOllama");
+  p.textContent = "ollama: " + j.ollama_model;
+  p.classList.add("on");
+} else {
+  const p = $("pillOllama");
+  p.textContent = "ollama: выкл";
+  p.classList.add("warn");
+  p.title = "Установи Ollama: brew install ollama && ollama serve";
+}
 });
 
 $("openBtn").onclick = () => $("fileInput").click();
@@ -699,6 +743,10 @@ async function loadFile(file) {
         `Word загружен: ${file.name} · ${(j.text || "").length} символов`;
       $("checkAiBtn").disabled = false;
       $("paraphraseBtn").disabled = false;
+      $("checkAiLlmBtn").disabled = false;
+      $("paraphraseLlmBtn").disabled = false;
+      $("checkAiLlmBtn").disabled = false;
+      $("paraphraseLlmBtn").disabled = false;
     } catch (e) {
       console.error(e);
       $("statusText").textContent = "ошибка Word: " + e.message;
@@ -719,6 +767,8 @@ async function loadFile(file) {
       $("statusText").textContent = "загружено: " + file.name;
       $("checkAiBtn").disabled = false;
       $("paraphraseBtn").disabled = false;
+      $("checkAiLlmBtn").disabled = false;
+      $("paraphraseLlmBtn").disabled = false;
     };
     r.readAsText(file, "utf-8");
     return;
@@ -747,6 +797,8 @@ async function loadFile(file) {
       $("statusText").textContent = `PDF загружен: ${file.name} · ${j.pages} стр. · ${j.text.length} символов`;
       $("checkAiBtn").disabled = false;
       $("paraphraseBtn").disabled = false;
+      $("checkAiLlmBtn").disabled = false;
+      $("paraphraseLlmBtn").disabled = false;
     }
   } catch (e) {
     console.error(e);
@@ -874,6 +926,74 @@ $("paraphraseBtn").onclick = async () => {
     $("statusText").textContent = "ошибка: " + e.message;
   } finally {
     $("paraphraseBtn").disabled = false;
+      $("checkAiLlmBtn").disabled = false;
+      $("paraphraseLlmBtn").disabled = false;
+    hideOverlay();
+  }
+};
+
+// Проверка через LLM
+$("checkAiLlmBtn").onclick = async () => {
+  const text = input.value;
+  if (!text) { $("statusText").textContent = "нечего проверять"; return; }
+  $("checkAiLlmBtn").disabled = true;
+  showOverlay("Нейросеть анализирует текст… (5–30 сек)");
+  try {
+    const res = await fetch(api("/check-ai-llm"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const score = data.score;
+    $("aiPanel").classList.add("on");
+    $("aiScore").textContent = score + " / 100";
+    $("aiScore").className = "ai-score " + (score <= 25 ? "good" : score <= 55 ? "mid" : "bad");
+    $("aiLabel").textContent = data.label + " (LLM)";
+    $("aiBar").style.width = score + "%";
+    $("aiFeatures").innerHTML = Object.entries(data.features || {}).map(([k, v]) =>
+      `<div>${k}: <b>${v}</b></div>`
+    ).join("");
+    $("aiNotes").innerHTML = (data.notes || []).map(n => `<li>${n}</li>`).join("");
+    $("statusText").textContent = `🧠 LLM-анализ: ${score}/100 — ${data.label}`;
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка LLM: " + e.message;
+  } finally {
+    $("checkAiLlmBtn").disabled = false;
+    hideOverlay();
+  }
+};
+
+// Перефраз через LLM
+$("paraphraseLlmBtn").onclick = async () => {
+  const text = output.value || input.value;
+  if (!text) { $("statusText").textContent = "нечего перефразировать"; return; }
+  $("paraphraseLlmBtn").disabled = true;
+  showOverlay("Нейросеть переписывает текст… (может занять 2–5 минут)");
+  try {
+    const res = await fetch(api("/paraphrase-llm"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    output.value = data.paraphrased;
+    $("statusText").textContent =
+      `🤖 LLM-перефраз: ${data.total_swaps} абзацев • ` +
+      `${data.chars_before} → ${data.chars_after} символов`;
+    $("copyBtn").disabled = false;
+    $("saveTxtBtn").disabled = false;
+    $("savePdfBtn").disabled = false;
+    $("diffBtn").disabled = false;
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка LLM-перефраза: " + e.message;
+  } finally {
+    $("paraphraseLlmBtn").disabled = false;
     hideOverlay();
   }
 };
