@@ -23,6 +23,7 @@ from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import difflib
+import urllib.error
 import html as _html
 
 # --- опциональные библиотеки ---
@@ -680,6 +681,61 @@ def paraphrase_with_llm(text: str) -> dict:
         "method": "llm",
     }
 
+def paraphrase_stream_generator(text: str, intensity: int = 5):
+    """Генератор для SSE-стриминга перефраза.
+    yield-ит словари: {"type": "progress"|"token"|"end_chunk"|"done"|"error", ...}"""
+    if not HAS_OLLAMA:
+        yield {"type": "error", "message": "Ollama не установлена"}
+        return
+
+    paragraphs = [p for p in text.split("\n") if p.strip()]
+    total = len(paragraphs)
+
+    if intensity <= 3:
+        style_hint = "Замени только штампы и канцелярит. Остальное не трогай."
+    elif intensity <= 7:
+        style_hint = "Перепиши текст другими словами, сохранив смысл."
+    else:
+        style_hint = "Полностью перепиши текст, измени структуру, но сохрани факты."
+
+    system_prompt = (
+        "Ты — редактор. Отвечаешь только готовым текстом, без пояснений. "
+        f"{style_hint}"
+    )
+
+    for i, para in enumerate(paragraphs):
+        yield {"type": "progress", "current": i + 1, "total": total}
+
+        if len(para) < 30:
+            yield {"type": "token", "text": para}
+            yield {"type": "end_chunk"}
+            continue
+
+        prompt = f"Перепиши:\n{para}"
+        try:
+            for chunk in ollama.chat(
+                model=OLLAMA_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                stream=True,
+                options={
+                    "temperature": 0.3 if intensity <= 3 else 0.7 if intensity <= 7 else 1.0,
+                    "num_predict": max(500, len(para) * 3),
+                },
+            ):
+                piece = chunk.get("message", {}).get("content", "")
+                if piece:
+                    yield {"type": "token", "text": piece}
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+            yield {"type": "token", "text": para}
+
+        yield {"type": "end_chunk"}
+
+    yield {"type": "done"}
+
 def find_ai_sentences(text: str) -> dict:
     """Возвращает текст с подсветкой предложений, наиболее похожих на ИИ.
     Помечает их как [AI]...[/AI] для отображения в UI."""
@@ -1122,6 +1178,11 @@ class Handler(BaseHTTPRequestHandler):
                 "platform": platform.system(),
                 "binary": _which_ollama() or None,
             })    
+        elif self.path == "/version":
+            self._json(200, {"version": APP_VERSION})
+
+        elif self.path == "/check-update":
+            self._json(200, check_for_update())
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -1165,14 +1226,36 @@ class Handler(BaseHTTPRequestHandler):
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})
 
-        elif self.path == "/paraphrase-llm":
+        elif self.path == "/paraphrase-llm-stream":
             try:
                 data = json.loads(raw)
-                result = paraphrase_with_llm(data.get("text", ""))
-                self._json(200, result)
+                text = data.get("text", "")
+                intensity = int(data.get("intensity", 5))
+
+                # SSE-ответ
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+
+                for event in paraphrase_stream_generator(text, intensity):
+                    line = f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    try:
+                        self.wfile.write(line.encode("utf-8"))
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        # пользователь нажал «Стоп» — просто выходим
+                        print("[stream] клиент отключился")
+                        return
             except Exception as e:
                 traceback.print_exc()
-                self._json(500, {"error": str(e)})
+                try:
+                    err = f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
+                    self.wfile.write(err.encode("utf-8"))
+                except Exception:
+                    pass
 
         elif self.path == "/highlight":
             try:
@@ -1463,7 +1546,39 @@ def pull_model(model: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+APP_VERSION = "2.1.0"
 
+def check_for_update() -> dict:
+    """Проверяет GitHub Releases на новую версию."""
+    try:
+        url = "https://api.github.com/repos/nenenzn719-droid/ai_cleaner/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "AI-Cleaner"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read().decode("utf-8"))
+
+        latest = data.get("tag_name", "").lstrip("v")
+        html_url = data.get("html_url", "")
+
+        def _ver_tuple(v):
+            try:
+                return tuple(int(x) for x in v.split("."))
+            except Exception:
+                return (0,)
+
+        if _ver_tuple(latest) > _ver_tuple(APP_VERSION):
+            return {
+                "update_available": True,
+                "current": APP_VERSION,
+                "latest": latest,
+                "url": html_url,
+            }
+        return {
+            "update_available": False,
+            "current": APP_VERSION,
+            "latest": latest,
+        }
+    except Exception as e:
+        return {"error": str(e), "current": APP_VERSION}
 
 def find_port(start=8765):
     for p in range(start, start + 50):

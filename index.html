@@ -12,6 +12,16 @@
     --good: #34d399; --warn: #fbbf24; --bad: #f87171;
     --shadow: 0 10px 30px rgba(0,0,0,.35);
   }
+  body.light {
+    --bg: #f5f6fa; --card: #ffffff; --card2: #f0f1f5; --border: #e0e2e8;
+    --text: #111827; --muted: #6b7280;
+    --accent: #5b4fdc; --accent2: #7c6ee8;
+    --shadow: 0 10px 30px rgba(0,0,0,.08);
+  }
+  body.light .diff-body { background: #fafbfc; }
+  body.light .pill { background: #eef0f5; }
+  body.light button:hover:not(:disabled) { background: #e9ebf0; }
+  body.light .dropdown-menu button:hover:not(:disabled) { background: #f0f1f5; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 15px/1.5 -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
@@ -22,6 +32,76 @@
   h1 { font-size: 26px; margin: 0; letter-spacing: -.3px; }
   h1 span { color: var(--accent2); }
   .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  
+  .update-banner {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 18px; margin-bottom: 14px;
+    background: linear-gradient(90deg, rgba(109,93,252,.12), rgba(109,93,252,.04));
+    border: 1px solid rgba(109,93,252,.35);
+    border-radius: 12px; font-size: 14px;
+  }
+  .update-banner span { flex: 1; color: var(--text); }
+  .update-banner b { color: var(--accent2); }
+
+  /* Плавающий индикатор прогресса LLM */
+  .llm-toast {
+    position: fixed; right: 24px; bottom: 24px;
+    width: 260px; padding: 14px 16px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow);
+    z-index: 90;
+    display: none;
+    font-size: 13.5px; color: var(--text);
+    transition: transform .2s, opacity .2s;
+  }
+  .llm-toast.on { display: block; }
+  .llm-toast.collapsed {
+    width: 56px; height: 56px; padding: 0;
+    border-radius: 50%; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .llm-toast.collapsed .llm-toast-body { display: none; }
+  .llm-toast.collapsed .llm-toast-ring { display: block; }
+  .llm-toast-head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 10px;
+  }
+  .llm-toast-head b { flex: 1; font-size: 13px; }
+  .llm-toast-close {
+    background: transparent; border: 0; color: var(--muted);
+    padding: 4px; cursor: pointer; font-size: 14px; line-height: 1;
+    border-radius: 6px;
+  }
+  .llm-toast-close:hover { background: var(--card2); color: var(--text); }
+  .llm-toast-bar {
+    height: 4px; border-radius: 2px; background: #232838;
+    overflow: hidden; margin: 8px 0;
+  }
+  .llm-toast-bar-fill {
+    height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--good), var(--accent));
+    transition: width .3s;
+  }
+  .llm-toast-meta {
+    display: flex; justify-content: space-between;
+    color: var(--muted); font-size: 12px;
+    font-family: "SF Mono", monospace;
+  }
+  .llm-toast-actions {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .llm-toast-actions button {
+    flex: 1; padding: 6px 10px; font-size: 12.5px;
+    border-radius: 8px;
+  }
+  .llm-toast-ring {
+    display: none;
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 2.5px solid rgba(109,93,252,.25);
+    border-top-color: var(--accent2);
+    animation: spin .8s linear infinite;
+  }
+  .llm-toast.collapsed .llm-toast-ring { display: block; }
 
   .llm-note {
     display: flex; align-items: center; gap: 10px;
@@ -310,7 +390,11 @@
     <div class="sub">Очистка текста, PDF и Word — локально, без интернета</div>
   </div>
 </header>
-
+<div class="update-banner" id="updateBanner" style="display:none;">
+  <span>🚀 Доступна новая версия <b id="updateVer">—</b></span>
+  <button id="updateNowBtn" class="btn-primary">Скачать</button>
+  <button id="updateCloseBtn" class="mini">✕</button>
+</div>
 <div class="toolbar">
   <div class="tb-group">
     <button id="openBtn" class="btn-primary">📂 Открыть файл</button>
@@ -335,6 +419,7 @@
         <button id="copyBtn" disabled>📋 Копировать в буфер</button>
       </div>
     </div>
+    <button id="themeBtn" class="icon-btn" title="Светлая/тёмная тема">🌙</button>
     <button id="optionsBtn" class="icon-btn" title="Настройки">⚙️</button>
   </div>
 </div>
@@ -377,6 +462,11 @@
       <option value="13">13 pt</option>
       <option value="14">14 pt</option>
     </select>
+  </label>
+  <label class="opt-label" title="Сила перефраза: 1–3 лёгкая, 4–7 средняя, 8–10 жёсткая">
+    Сила LLM:
+    <input type="range" id="llmIntensity" min="1" max="10" value="5" style="width:80px; accent-color:var(--accent);">
+    <span id="llmIntensityVal" style="color:var(--text); font-weight:600; min-width:14px;">5</span>
   </label>
   <span class="opt-hint">Шрифт и размер — только для «PDF со структурой»</span>
 </div>
@@ -448,7 +538,26 @@
     <ul class="ai-notes" id="aiNotes"></ul>
   </div>
 </div>
-
+<div class="llm-toast" id="llmToast">
+  <div class="llm-toast-ring"></div>
+  <div class="llm-toast-body">
+    <div class="llm-toast-head">
+      <span>🤖</span>
+      <b id="llmToastTitle">LLM-перефраз</b>
+      <button class="llm-toast-close" id="llmToastCollapse" title="Свернуть">—</button>
+    </div>
+    <div class="llm-toast-bar">
+      <div class="llm-toast-bar-fill" id="llmToastBar"></div>
+    </div>
+    <div class="llm-toast-meta">
+      <span id="llmToastProgress">0 / 0</span>
+      <span id="llmToastTime">0:00</span>
+    </div>
+    <div class="llm-toast-actions">
+      <button id="llmToastStop" class="btn-accent">⏹ Стоп</button>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="overlay">
   <div>
     <div class="spinner"></div>
@@ -458,6 +567,88 @@
 
 <script>
 const $ = id => document.getElementById(id);
+// === Тема ===
+function applyTheme(theme) {
+  if (theme === "light") {
+    document.body.classList.add("light");
+    document.getElementById("themeBtn").textContent = "☀️";
+  } else {
+    document.body.classList.remove("light");
+    document.getElementById("themeBtn").textContent = "🌙";
+  }
+  localStorage.setItem("theme", theme);
+}
+applyTheme(localStorage.getItem("theme") || "dark");
+
+document.getElementById("themeBtn").onclick = () => {
+  const isLight = document.body.classList.contains("light");
+  applyTheme(isLight ? "dark" : "light");
+};
+
+// === Автосохранение ===
+const AUTOSAVE_KEY = "ai_cleaner_session";
+setInterval(() => {
+  if (!input.value && !output.value) return;
+  localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({
+    input: input.value,
+    output: output.value,
+    time: Date.now(),
+  }));
+}, 30000);
+
+window.addEventListener("load", () => {
+  const raw = localStorage.getItem(AUTOSAVE_KEY);
+  if (!raw) return;
+  try {
+    const saved = JSON.parse(raw);
+    const age = Date.now() - (saved.time || 0);
+    if (age > 24 * 3600 * 1000) {
+      localStorage.removeItem(AUTOSAVE_KEY);
+      return;
+    }
+    if (saved.input || saved.output) {
+      const restore = confirm(
+        "Восстановить последнюю сессию?\n\n" +
+        `Сохранено: ${new Date(saved.time).toLocaleString("ru-RU")}`
+      );
+      if (restore) {
+        input.value = saved.input || "";
+        output.value = saved.output || "";
+        $("statusText").textContent = "сессия восстановлена";
+      } else {
+        localStorage.removeItem(AUTOSAVE_KEY);
+      }
+    }
+  } catch (e) { console.error(e); }
+});
+
+// === Проверка обновлений ===
+async function checkUpdate() {
+  try {
+    const res = await fetch(api("/check-update"));
+    const j = await res.json();
+    if (j.update_available) {
+      document.getElementById("updateVer").textContent = "v" + j.latest;
+      document.getElementById("updateBanner").style.display = "flex";
+      document.getElementById("updateNowBtn").onclick = () => {
+        window.open(j.url, "_blank");
+      };
+    }
+  } catch (e) { console.error("update check:", e); }
+}
+setTimeout(checkUpdate, 3000);
+
+document.getElementById("updateCloseBtn").onclick = () => {
+  document.getElementById("updateBanner").style.display = "none";
+};
+
+// === Слайдер интенсивности ===
+const intensityInput = document.getElementById("llmIntensity");
+if (intensityInput) {
+  intensityInput.oninput = e => {
+    document.getElementById("llmIntensityVal").textContent = e.target.value;
+  };
+}
 
 const llmNote = document.getElementById("llmNote");
 const llmNoteClose = document.getElementById("llmNoteClose");
@@ -1106,33 +1297,131 @@ $("checkAiLlmBtn").onclick = async () => {
 };
 
 // Перефраз через LLM
+let paraphraseAbort = null;
+let llmToastStart = 0;
+let llmToastTimer = null;
+
+const llmToast = document.getElementById("llmToast");
+const llmToastBar = document.getElementById("llmToastBar");
+const llmToastProgress = document.getElementById("llmToastProgress");
+const llmToastTime = document.getElementById("llmToastTime");
+const llmToastTitle = document.getElementById("llmToastTitle");
+
+function llmToastShow(title) {
+  llmToast.classList.remove("collapsed");
+  llmToast.classList.add("on");
+  llmToastTitle.textContent = title || "LLM-перефраз";
+  llmToastBar.style.width = "0%";
+  llmToastProgress.textContent = "0 / 0";
+  llmToastTime.textContent = "0:00";
+  llmToastStart = Date.now();
+  clearInterval(llmToastTimer);
+  llmToastTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - llmToastStart) / 1000);
+    const m = Math.floor(s / 60);
+    llmToastTime.textContent = `${m}:${(s % 60).toString().padStart(2, "0")}`;
+  }, 1000);
+}
+
+function llmToastHide() {
+  llmToast.classList.remove("on");
+  llmToast.classList.remove("collapsed");
+  clearInterval(llmToastTimer);
+  llmToastTimer = null;
+}
+
+document.getElementById("llmToastCollapse").onclick = (e) => {
+  e.stopPropagation();
+  llmToast.classList.toggle("collapsed");
+};
+
+llmToast.onclick = () => {
+  if (llmToast.classList.contains("collapsed")) {
+    llmToast.classList.remove("collapsed");
+  }
+};
+
+document.getElementById("llmToastStop").onclick = () => {
+  if (paraphraseAbort) paraphraseAbort.abort();
+};
+
 $("paraphraseLlmBtn").onclick = async () => {
   const text = output.value || input.value;
   if (!text) { $("statusText").textContent = "нечего перефразировать"; return; }
-  $("paraphraseLlmBtn").disabled = true;
-  showOverlay("Нейросеть переписывает текст… (может занять 2–5 минут)");
+
+  if (paraphraseAbort) {
+    paraphraseAbort.abort();
+    return;
+  }
+
+  const intensity = intensityInput ? parseInt(intensityInput.value) : 5;
+  paraphraseAbort = new AbortController();
+  $("paraphraseLlmBtn").textContent = "⏹ Стоп";
+
+  output.value = "";
+
+  llmToastShow(`Перефраз (сила ${intensity})`);
+
+  let total = 0;
+  let buffer = "";
+
   try {
-    const res = await fetch(api("/paraphrase-llm"), {
+    const res = await fetch(api("/paraphrase-llm-stream"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text, intensity }),
+      signal: paraphraseAbort.signal,
     });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    output.value = data.paraphrased;
-    $("statusText").textContent =
-      `🤖 LLM-перефраз: ${data.total_swaps} абзацев • ` +
-      `${data.chars_before} → ${data.chars_after} символов`;
-    $("copyBtn").disabled = false;
-    $("saveTxtBtn").disabled = false;
-    $("savePdfBtn").disabled = false;
-    $("diffBtn").disabled = false;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop();
+
+      for (const block of blocks) {
+        if (!block.startsWith("data: ")) continue;
+        let evt;
+        try { evt = JSON.parse(block.slice(6)); } catch (e) { continue; }
+
+        if (evt.type === "progress") {
+          total = evt.total;
+          llmToastProgress.textContent = `${evt.current} / ${evt.total}`;
+          llmToastBar.style.width = (evt.current / evt.total * 100) + "%";
+        } else if (evt.type === "token") {
+          output.value += evt.text;
+          output.scrollTop = output.scrollHeight;
+        } else if (evt.type === "end_chunk") {
+          output.value += "\n\n";
+        } else if (evt.type === "error") {
+          $("statusText").textContent = "ошибка: " + evt.message;
+        } else if (evt.type === "done") {
+          const secs = Math.floor((Date.now() - llmToastStart) / 1000);
+          $("statusText").textContent =
+            `LLM-перефраз готов: ${total} абзацев, ${secs} сек, сила ${intensity}`;
+          $("copyBtn").disabled = false;
+          $("saveTxtBtn").disabled = false;
+          $("savePdfBtn").disabled = false;
+          $("diffBtn").disabled = false;
+        }
+      }
+    }
   } catch (e) {
-    console.error(e);
-    $("statusText").textContent = "ошибка LLM-перефраза: " + e.message;
+    if (e.name === "AbortError") {
+      $("statusText").textContent = "остановлено пользователем";
+    } else {
+      console.error(e);
+      $("statusText").textContent = "ошибка: " + e.message;
+    }
   } finally {
-    $("paraphraseLlmBtn").disabled = false;
-    hideOverlay();
+    paraphraseAbort = null;
+    $("paraphraseLlmBtn").textContent = "🤖 Перефраз (LLM) ⚠️";
+    llmToastHide();
   }
 };
 
