@@ -1576,31 +1576,79 @@ def paragraph_heatmap(text: str) -> dict:
     return {"paragraphs": out, "total": len(out)}
 
 def generate_report(text: str) -> dict:
-    """Генерирует детальный отчёт: баллы, топ-причины, примеры, рекомендации."""
+    """Расширенный отчёт: баллы, метрики, гистограмма, радар, рекомендации."""
     combined = check_ai_combined(text)
     heuristic = check_ai_score(text)
     phrases = find_ai_phrases(text)
     heatmap = paragraph_heatmap(text)
 
-    # Топ-причины (из notes эвристик)
-    top_reasons = []
-    for n in heuristic.get("notes", [])[:8]:
-        if n.startswith("Паттерны ИИ"):
-            # Разбираем паттерны отдельно
-            continue
-        top_reasons.append(n)
+    # --- Гистограмма длин предложений ---
+    sentences = _sentences(re.sub(r"[*_`#>]+", "", text))
+    sent_lens = [len(_words(s)) for s in sentences]
+    # бины по 5 слов
+    bins = {}
+    for ln in sent_lens:
+        b = (ln // 5) * 5
+        bins[b] = bins.get(b, 0) + 1
+    histogram = [{"bin": f"{k}–{k+4}", "count": v}
+                 for k, v in sorted(bins.items())]
 
-    # Группируем паттерны
+    # --- Радар метрик (нормализовано 0–100, где 100 = сильный ИИ) ---
+    feats = heuristic.get("features", {})
+
+    def _norm(val, min_v, max_v):
+        if max_v == min_v:
+            return 50
+        return max(0, min(100, int((val - min_v) / (max_v - min_v) * 100)))
+
+    radar = []
+
+    # burstiness — чем НИЖЕ, тем ИИ-шнее → инвертируем
+    burst = feats.get("burstiness", 0.5)
+    radar.append({"axis": "Ритм", "value": 100 - _norm(burst, 0.1, 0.7)})
+
+    # энтропия — чем ниже, тем ИИ-шнее → инвертируем
+    ent = feats.get("энтропия", 4.5)
+    radar.append({"axis": "Энтропия", "value": 100 - _norm(ent, 4.0, 4.8)})
+
+    # hapax — чем ниже, тем ИИ-шнее → инвертируем
+    hap = feats.get("hapax", 0.5)
+    radar.append({"axis": "Разнообразие", "value": 100 - _norm(hap, 0.3, 0.7)})
+
+    # абстрактные — чем выше, тем ИИ-шнее
+    abs_str = feats.get("абстрактных", "0%").replace("%", "")
+    try:
+        abs_val = float(abs_str)
+    except Exception:
+        abs_val = 0
+    radar.append({"axis": "Абстрактность", "value": _norm(abs_val, 5, 20)})
+
+    # паттерны ИИ — чем больше, тем ИИ-шнее
+    pat = feats.get("паттернов ИИ", 0)
+    radar.append({"axis": "Штампы", "value": _norm(pat, 0, 15)})
+
+    # разброс предложений — чем ниже cv, тем ИИ-шнее → инвертируем
+    cv = feats.get("разброс предл.", 0.5)
+    radar.append({"axis": "Длина предл.", "value": 100 - _norm(cv, 0.2, 0.8)})
+
+    # придаточные — чем меньше, тем ИИ-шнее → инвертируем
+    cl = feats.get("придаточных", 0.6)
+    radar.append({"axis": "Синтаксис", "value": 100 - _norm(cl, 0.2, 1.2)})
+
+    # человеческие маркеры — чем больше, тем лучше → инвертируем
+    hm = feats.get("человеческих", 0)
+    radar.append({"axis": "Человечность", "value": 100 - _norm(hm, 0, 10)})
+
+    # --- Топ паттернов ---
     pattern_groups = {}
     low = text.lower()
     for rx, weight, name in AI_PATTERNS:
         matches = len(re.findall(rx, low))
         if matches > 0:
             pattern_groups[name] = pattern_groups.get(name, 0) + matches
-
     top_patterns = sorted(pattern_groups.items(), key=lambda x: -x[1])[:10]
 
-    # Примеры из текста
+    # --- Примеры ---
     examples = []
     for p in phrases.get("phrases", [])[:10]:
         start = max(0, p["start"] - 30)
@@ -1612,7 +1660,7 @@ def generate_report(text: str) -> dict:
             "context": "…" + context.strip() + "…",
         })
 
-    # Рекомендации
+    # --- Рекомендации ---
     recommendations = []
     if pattern_groups.get("«однако»", 0) > 2:
         recommendations.append("Заменить часть «однако» на «но» или убрать совсем")
@@ -1624,21 +1672,60 @@ def generate_report(text: str) -> dict:
         recommendations.append("Заменить часть длинных тире на запятые/точки")
     if combined.get("score", 0) > 50:
         recommendations.append("Прогнать через 🔄 Перефразировать или 🤖 LLM-перефраз")
-    if heatmap.get("total", 0) > 5:
-        high = sum(1 for p in heatmap["paragraphs"] if p["level"] in ("high", "critical"))
-        if high > 0:
-            recommendations.append(f"Переписать {high} самых «ИИ-шных» абзацев вручную")
+    high_paras = sum(1 for p in heatmap["paragraphs"] if p["level"] in ("high", "critical"))
+    if high_paras > 0:
+        recommendations.append(f"Переписать {high_paras} самых «ИИ-шных» абзацев вручную")
 
     return {
         "combined": combined,
         "heuristic": heuristic,
         "phrases_count": phrases.get("count", 0),
         "heatmap": heatmap,
+        "histogram": histogram,
+        "radar": radar,
         "top_patterns": [{"name": k, "count": v} for k, v in top_patterns],
         "examples": examples,
         "recommendations": recommendations,
-        "timestamp": None,  # заполним в endpoint
+        "timestamp": None,
     }
+
+
+def report_to_csv(report: dict) -> bytes:
+    """Экспорт отчёта в CSV."""
+    import csv
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+
+    combined = report.get("combined", {})
+    w.writerow(["Метрика", "Значение"])
+    w.writerow(["Итоговый балл", combined.get("score", 0)])
+    w.writerow(["Вердикт", combined.get("label", "")])
+    if combined.get("combined"):
+        w.writerow(["Эвристики", combined.get("heuristic_score", 0)])
+        w.writerow(["LLM", combined.get("llm_score", 0)])
+    w.writerow([])
+
+    w.writerow(["=== Метрики эвристики ===", ""])
+    for k, v in report.get("heuristic", {}).get("features", {}).items():
+        w.writerow([k, v])
+    w.writerow([])
+
+    w.writerow(["=== Топ ИИ-штампов ===", ""])
+    for p in report.get("top_patterns", []):
+        w.writerow([p["name"], p["count"]])
+    w.writerow([])
+
+    w.writerow(["=== Карта по абзацам ===", ""])
+    w.writerow(["Абзац", "Балл", "Уровень", "Слов"])
+    for p in report.get("heatmap", {}).get("paragraphs", []):
+        w.writerow([p["index"] + 1, p["score"], p["level"], p["words"]])
+    w.writerow([])
+
+    w.writerow(["=== Рекомендации ===", ""])
+    for r in report.get("recommendations", []):
+        w.writerow([r])
+
+    return buf.getvalue().encode("utf-8-sig")  # BOM для Excel
 
 
 def report_to_pdf(report: dict, original_text: str) -> bytes:
@@ -2393,6 +2480,17 @@ class Handler(BaseHTTPRequestHandler):
                 report = generate_report(text)
                 pdf_bytes = report_to_pdf(report, text)
                 self._send(200, pdf_bytes, "application/pdf")
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})        
+
+        elif self.path == "/report-csv":
+            try:
+                data = json.loads(raw)
+                text = data.get("text", "")
+                report = generate_report(text)
+                csv_bytes = report_to_csv(report)
+                self._send(200, csv_bytes, "text/csv; charset=utf-8")
             except Exception as e:
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})        

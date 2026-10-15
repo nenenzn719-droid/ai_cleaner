@@ -213,6 +213,55 @@
   .report-section .reco { color: var(--good); }
   .report-section .ex-label { color: var(--warn); font-size: 11px; }
 
+    /* Гистограмма */
+  .histogram {
+    display: flex; align-items: flex-end; gap: 6px;
+    height: 140px; padding: 12px 0; margin-top: 8px;
+  }
+  .histogram .bar {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: flex-end; height: 100%; gap: 4px;
+  }
+  .histogram .bar-fill {
+    width: 100%; background: linear-gradient(180deg, var(--accent2), var(--accent));
+    border-radius: 4px 4px 0 0; min-height: 2px;
+    transition: opacity .15s;
+  }
+  .histogram .bar:hover .bar-fill { opacity: .7; }
+  .histogram .bar-count {
+    font-size: 10px; color: var(--muted);
+    font-family: "SF Mono", monospace;
+  }
+  .histogram .bar-label {
+    font-size: 10px; color: var(--muted);
+    font-family: "SF Mono", monospace;
+  }
+
+  /* Радар */
+  .radar-wrap {
+    display: flex; justify-content: center; padding: 12px 0;
+  }
+  .radar-wrap svg { max-width: 360px; width: 100%; height: auto; }
+  .radar-axis {
+    font-size: 10px; fill: var(--muted);
+    font-family: "SF Mono", monospace;
+  }
+
+  /* Селектор профиля */
+  .report-profiles {
+    display: flex; gap: 6px; margin-bottom: 14px;
+    padding: 4px; background: var(--card2);
+    border-radius: 10px; width: fit-content;
+  }
+  .report-profiles button {
+    padding: 6px 14px; font-size: 13px;
+    background: transparent; border: 0; color: var(--muted);
+    border-radius: 7px; cursor: pointer;
+  }
+  .report-profiles button.active {
+    background: var(--accent); color: white; font-weight: 600;
+  }
+
   /* Сравнение до/после */
   .compare-view {
     display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
@@ -736,9 +785,15 @@
   <div class="report-head">
     <b>📊 Детальный отчёт</b>
     <span>
+      <button id="reportCsvBtn" class="mini">💾 CSV</button>
       <button id="reportPdfBtn" class="mini">💾 PDF</button>
       <button id="reportCloseBtn" class="mini">✕</button>
     </span>
+  </div>
+    <div class="report-profiles" id="reportProfiles">
+    <button data-profile="advisor">📋 Для научрука</button>
+    <button data-profile="self" class="active">🔬 Для себя</button>
+    <button data-profile="short">⚡ Кратко</button>
   </div>
   <div class="report-body" id="reportBody"></div>
 </div>
@@ -1335,34 +1390,56 @@ async function renderHeatmap(text) {
 $("heatmapCloseBtn").onclick = () => $("heatmapView").classList.remove("on");
 
 // === Детальный отчёт ===
-$("reportBtn").onclick = async () => {
-  const text = input.value || output.value;
-  if (!text) { $("statusText").textContent = "нет текста для анализа"; return; }
-  showOverlay("Готовлю отчёт…");
-  try {
-    const res = await fetch(api("/report"), {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ text })
-    });
-    const r = await res.json();
-    if (r.error) throw new Error(r.error);
+let lastReport = null;
+let reportProfile = "self";
 
-    const c = r.combined || {};
+$("reportProfiles").querySelectorAll("button").forEach(btn => {
+  btn.onclick = () => {
+    $("reportProfiles").querySelectorAll("button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    reportProfile = btn.dataset.profile;
+    if (lastReport) renderReport(lastReport, reportProfile);
+  };
+});
+
+function renderReport(r, profile) {
+  const c = r.combined || {};
+
+  // Краткий профиль
+  if (profile === "short") {
+    let html = `<div class="report-section">
+      <h4>Итог</h4>
+      <ul>
+        <li><b>${c.score}/100</b> — ${c.label || "—"}</li>
+        <li>ИИ-штампов: ${r.phrases_count}</li>
+      </ul>
+    </div>`;
+    if (r.recommendations && r.recommendations.length) {
+      html += `<div class="report-section"><h4>Что делать</h4><ul>`;
+      r.recommendations.slice(0, 4).forEach(rec => {
+        html += `<li class="reco">✓ ${escapeHtml(rec)}</li>`;
+      });
+      html += `</ul></div>`;
+    }
+    $("reportBody").innerHTML = html;
+    return;
+  }
+
+  // Профиль для научрука — акцент на факты и рекомендации
+  if (profile === "advisor") {
     let html = `
       <div class="report-section">
         <h4>Итог</h4>
         <ul>
-          <li><b>${c.score}/100</b> — ${c.label || "—"}</li>
+          <li><b>Итоговый балл: ${c.score}/100</b> — ${c.label || "—"}</li>
           ${c.combined ? `<li>Эвристики: ${c.heuristic_score} · LLM: ${c.llm_score}</li>` : ""}
-          <li>Найдено ИИ-штампов: ${r.phrases_count}</li>
-          <li>Абзацев проанализировано: ${(r.heatmap && r.heatmap.total) || 0}</li>
+          <li>Найдено ИИ-штампов: <b>${r.phrases_count}</b></li>
+          <li>Проанализировано абзацев: <b>${(r.heatmap && r.heatmap.total) || 0}</b></li>
         </ul>
-      </div>
-    `;
+      </div>`;
 
     if (r.top_patterns && r.top_patterns.length) {
-      html += `<div class="report-section"><h4>Топ ИИ-штампов</h4><ul>`;
+      html += `<div class="report-section"><h4>Топ-10 ИИ-штампов</h4><ul>`;
       r.top_patterns.slice(0, 10).forEach(p => {
         html += `<li>${escapeHtml(p.name)} — <b>${p.count}</b> раз</li>`;
       });
@@ -1371,12 +1448,10 @@ $("reportBtn").onclick = async () => {
 
     if (r.examples && r.examples.length) {
       html += `<div class="report-section"><h4>Примеры из текста</h4><ul>`;
-      r.examples.slice(0, 8).forEach(ex => {
-        html += `<li>
-          <span class="ex-label">${escapeHtml(ex.label)}</span><br>
+      r.examples.slice(0, 5).forEach(ex => {
+        html += `<li><span class="ex-label">${escapeHtml(ex.label)}</span><br>
           «${escapeHtml(ex.phrase)}»<br>
-          <small style="color:var(--muted)">${escapeHtml(ex.context)}</small>
-        </li>`;
+          <small style="color:var(--muted)">${escapeHtml(ex.context)}</small></li>`;
       });
       html += `</ul></div>`;
     }
@@ -1390,6 +1465,152 @@ $("reportBtn").onclick = async () => {
     }
 
     $("reportBody").innerHTML = html;
+    return;
+  }
+
+  // Профиль для себя — всё + визуализация
+  let html = `
+    <div class="report-section">
+      <h4>Итог</h4>
+      <ul>
+        <li><b>${c.score}/100</b> — ${c.label || "—"}</li>
+        ${c.combined ? `<li>Эвристики: ${c.heuristic_score} · LLM: ${c.llm_score}</li>` : ""}
+        <li>Найдено ИИ-штампов: ${r.phrases_count}</li>
+      </ul>
+    </div>`;
+
+  // Радар метрик
+  if (r.radar && r.radar.length) {
+    html += `<div class="report-section"><h4>Профиль метрик</h4>
+      <div class="radar-wrap">${renderRadarSVG(r.radar)}</div></div>`;
+  }
+
+  // Гистограмма
+  if (r.histogram && r.histogram.length) {
+    html += `<div class="report-section"><h4>Распределение длин предложений</h4>
+      ${renderHistogram(r.histogram)}</div>`;
+  }
+
+  // Метрики
+  const feats = (r.heuristic && r.heuristic.features) || {};
+  if (Object.keys(feats).length) {
+    html += `<div class="report-section"><h4>Все метрики</h4><ul style="columns:2; column-gap:32px;">`;
+    Object.entries(feats).forEach(([k, v]) => {
+      html += `<li style="display:inline-block; width:100%;">${escapeHtml(k)}: <b>${v}</b></li>`;
+    });
+    html += `</ul></div>`;
+  }
+
+  if (r.top_patterns && r.top_patterns.length) {
+    html += `<div class="report-section"><h4>Топ ИИ-штампов</h4><ul>`;
+    r.top_patterns.slice(0, 10).forEach(p => {
+      html += `<li>${escapeHtml(p.name)} — <b>${p.count}</b> раз</li>`;
+    });
+    html += `</ul></div>`;
+  }
+
+  if (r.examples && r.examples.length) {
+    html += `<div class="report-section"><h4>Примеры</h4><ul>`;
+    r.examples.slice(0, 8).forEach(ex => {
+      html += `<li><span class="ex-label">${escapeHtml(ex.label)}</span><br>
+        «${escapeHtml(ex.phrase)}»<br>
+        <small style="color:var(--muted)">${escapeHtml(ex.context)}</small></li>`;
+    });
+    html += `</ul></div>`;
+  }
+
+  if (r.recommendations && r.recommendations.length) {
+    html += `<div class="report-section"><h4>Рекомендации</h4><ul>`;
+    r.recommendations.forEach(rec => {
+      html += `<li class="reco">✓ ${escapeHtml(rec)}</li>`;
+    });
+    html += `</ul></div>`;
+  }
+
+  $("reportBody").innerHTML = html;
+}
+
+function renderHistogram(data) {
+  const maxCount = Math.max(...data.map(d => d.count));
+  let html = '<div class="histogram">';
+  data.forEach(d => {
+    const h = maxCount > 0 ? (d.count / maxCount * 100) : 0;
+    html += `<div class="bar" title="${d.bin} слов: ${d.count} предложений">
+      <span class="bar-count">${d.count}</span>
+      <div class="bar-fill" style="height:${h}%"></div>
+      <span class="bar-label">${d.bin}</span>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderRadarSVG(axes) {
+  const size = 320, cx = size / 2, cy = size / 2, radius = 120;
+  const n = axes.length;
+
+  function point(i, r) {
+    const angle = (Math.PI * 2 * i / n) - Math.PI / 2;
+    return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
+  }
+
+  let svg = `<svg viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">`;
+
+  // сетка
+  [0.25, 0.5, 0.75, 1].forEach(level => {
+    svg += `<polygon points="`;
+    for (let i = 0; i < n; i++) {
+      const [x, y] = point(i, radius * level);
+      svg += `${x},${y} `;
+    }
+    svg += `" fill="none" stroke="#262b38" stroke-width="1"/>`;
+  });
+
+  // оси и подписи
+  for (let i = 0; i < n; i++) {
+    const [x, y] = point(i, radius);
+    const [lx, ly] = point(i, radius + 22);
+    svg += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#262b38" stroke-width="1"/>`;
+    const anchor = lx < cx - 10 ? "end" : lx > cx + 10 ? "start" : "middle";
+    svg += `<text x="${lx}" y="${ly}" class="radar-axis" text-anchor="${anchor}" dominant-baseline="middle">${axes[i].axis}</text>`;
+  }
+
+  // данные
+  let points = "";
+  for (let i = 0; i < n; i++) {
+    const val = Math.max(0, Math.min(100, axes[i].value)) / 100;
+    const [x, y] = point(i, radius * val);
+    points += `${x},${y} `;
+  }
+  svg += `<polygon points="${points}" fill="rgba(109,93,252,0.35)" stroke="#8b7dff" stroke-width="2"/>`;
+
+  // точки
+  for (let i = 0; i < n; i++) {
+    const val = Math.max(0, Math.min(100, axes[i].value)) / 100;
+    const [x, y] = point(i, radius * val);
+    svg += `<circle cx="${x}" cy="${y}" r="3" fill="#8b7dff"/>`;
+  }
+
+  svg += `</svg>`;
+  return svg;
+}
+
+$("reportBtn").onclick = async () => {
+  const text = input.value || output.value;
+  if (!text) { $("statusText").textContent = "нет текста для анализа"; return; }
+  showOverlay("Готовлю отчёт…");
+  try {
+    const res = await fetch(api("/report"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const r = await res.json();
+    if (r.error) throw new Error(r.error);
+
+    lastReport = r;
+    renderReport(r, reportProfile);
+
     $("reportPanel").classList.add("on");
     $("reportPanel").scrollIntoView({ behavior: "smooth", block: "start" });
     $("statusText").textContent = "отчёт готов";
@@ -1420,6 +1641,30 @@ $("reportPdfBtn").onclick = async () => {
     a.download = "ai-cleaner-report.pdf";
     a.click();
     $("statusText").textContent = "отчёт сохранён в PDF";
+  } catch (e) {
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
+
+$("reportCsvBtn").onclick = async () => {
+  const text = input.value || output.value;
+  if (!text) return;
+  showOverlay("Готовлю CSV…");
+  try {
+    const res = await fetch(api("/report-csv"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    if (!res.ok) throw new Error("не удалось создать CSV");
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ai-cleaner-report.csv";
+    a.click();
+    $("statusText").textContent = "отчёт сохранён в CSV";
   } catch (e) {
     $("statusText").textContent = "ошибка: " + e.message;
   } finally {
