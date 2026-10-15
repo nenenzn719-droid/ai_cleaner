@@ -153,6 +153,89 @@
   }
   button.btn-primary:hover:not(:disabled) { filter: brightness(1.08); }
 
+  /* Карта по абзацам */
+  .heatmap-view {
+    margin-top: 18px; padding: 16px 20px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; display: none;
+  }
+  .heatmap-view.on { display: block; }
+  .heatmap-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px; color: var(--muted); font-size: 13px;
+  }
+  .heatmap-head b { color: var(--text); font-size: 14px; }
+  .heatmap-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+  .heatmap-item {
+    padding: 10px 14px; border-radius: 8px;
+    border-left: 4px solid var(--muted);
+    background: var(--card2); font-size: 13px;
+    cursor: pointer; transition: .15s;
+  }
+  .heatmap-item:hover { background: #262b38; }
+  body.light .heatmap-item:hover { background: #e9ebf0; }
+  .heatmap-item.low { border-color: var(--good); }
+  .heatmap-item.mid { border-color: var(--warn); }
+  .heatmap-item.high { border-color: #fb923c; }
+  .heatmap-item.critical { border-color: var(--bad); background: rgba(248,113,113,.06); }
+  .heatmap-item .hm-row {
+    display: flex; justify-content: space-between; margin-bottom: 4px;
+  }
+  .heatmap-item .hm-num { color: var(--muted); font-size: 11px; }
+  .heatmap-item .hm-score { font-weight: 600; }
+  .heatmap-item .hm-text { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+  /* Детальный отчёт */
+  .report-panel {
+    margin-top: 18px; padding: 20px 24px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; display: none;
+  }
+  .report-panel.on { display: block; }
+  .report-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 16px;
+  }
+  .report-head b { font-size: 16px; }
+  .report-section { margin-bottom: 18px; }
+  .report-section h4 {
+    margin: 0 0 8px; font-size: 13px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .report-section ul {
+    list-style: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.7;
+  }
+  .report-section li {
+    padding: 6px 0; border-bottom: 1px solid var(--border);
+  }
+  .report-section li:last-child { border-bottom: 0; }
+  .report-section .reco { color: var(--good); }
+  .report-section .ex-label { color: var(--warn); font-size: 11px; }
+
+  /* Сравнение до/после */
+  .compare-view {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    margin-top: 18px; padding: 16px 20px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; display: none;
+  }
+  .compare-view.on { display: grid; }
+  .compare-box {
+    padding: 14px 18px; border-radius: 10px;
+    background: var(--card2); text-align: center;
+  }
+  .compare-box .cb-label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .compare-box .cb-score { font-size: 32px; font-weight: 700; }
+  .compare-box.before .cb-score { color: var(--bad); }
+  .compare-box.after .cb-score { color: var(--good); }
+  .compare-delta {
+    grid-column: 1 / -1; text-align: center; padding: 10px;
+    font-size: 16px; font-weight: 600;
+  }
+  .compare-delta.down { color: var(--good); }
+  .compare-delta.up { color: var(--bad); }
+
   button.btn-accent {
     background: linear-gradient(180deg, #34d399, #10b981);
     border-color: transparent; color: #0b1a13; font-weight: 700;
@@ -498,7 +581,9 @@
     <button id="cleanBtn" class="btn-accent">✨ Очистить</button>
     <button id="paraphraseBtn" disabled title="Заменить штампы и клише">🔄 Перефразировать</button>
     <button id="paraphraseLlmBtn" class="warn-soft" disabled title="⚠️ LLM-модель больше подходит для проверки, чем для перефраза. Качество перефраза зависит от модели — на qwen2.5:3b может быть неточным. Для лучшего результата используйте qwen2.5:7b.">🤖 Перефраз (LLM) ⚠️</button>
-    <button id="checkAiBtn" disabled title="Оценить «машинность» текста">🔬 Проверить ИИ</button>
+    <button id="checkAiBtn" disabled title="Быстрая оценка по эвристикам">🔬 Проверить ИИ</button>
+    <button id="checkAiCombinedBtn" disabled title="Точная оценка: эвристики + нейросеть">🎯 Точная проверка</button>
+    <button id="reportBtn" disabled title="Детальный отчёт с рекомендациями">📊 Отчёт</button>
     <button id="checkAiLlmBtn" disabled title="Проверить через локальную нейросеть (точнее, но медленнее)">🧠 Проверить (LLM)</button>
     <button id="diffBtn" disabled title="Сравнить исходник и результат">🔍 Сравнить</button>
     <button id="batchBtn" title="Обработать всю папку с файлами">📁 Пакетно</button>
@@ -623,7 +708,39 @@
   </div>
   <ul id="aiHlList"></ul>
 </div>
+<div class="heatmap-view" id="heatmapView">
+  <div class="heatmap-head">
+    <span><b>🗺️ Карта по абзацам</b></span>
+    <span>
+      <span id="heatmapStats">—</span>
+      <button id="heatmapCloseBtn" class="mini">✕</button>
+    </span>
+  </div>
+  <div class="heatmap-list" id="heatmapList"></div>
+</div>
 
+<div class="report-panel" id="reportPanel">
+  <div class="report-head">
+    <b>📊 Детальный отчёт</b>
+    <span>
+      <button id="reportPdfBtn" class="mini">💾 PDF</button>
+      <button id="reportCloseBtn" class="mini">✕</button>
+    </span>
+  </div>
+  <div class="report-body" id="reportBody"></div>
+</div>
+
+<div class="compare-view" id="compareView">
+  <div class="compare-box before">
+    <div class="cb-label">ДО</div>
+    <div class="cb-score" id="cmpBefore">—</div>
+  </div>
+  <div class="compare-box after">
+    <div class="cb-label">ПОСЛЕ</div>
+    <div class="cb-score" id="cmpAfter">—</div>
+  </div>
+  <div class="compare-delta" id="cmpDelta">—</div>
+</div>
   <div class="status">
     <div class="item">Статус: <b id="statusText">готов</b></div>
     <div class="item">Невидимых: <b id="rInvis">0</b></div>
@@ -1114,6 +1231,245 @@ fetch(api("/ping")).then(r => r.json()).then(j => {
 }
 });
 
+// === Точная проверка (комбинированная) ===
+$("checkAiCombinedBtn").onclick = async () => {
+  const text = input.value;
+  if (!text) { $("statusText").textContent = "нечего проверять"; return; }
+  showOverlay("Точный анализ (эвристики + LLM)…");
+  try {
+    const res = await fetch(api("/check-ai-combined"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const score = data.score;
+    $("aiPanel").classList.add("on");
+    $("aiScore").textContent = score + " / 100";
+    $("aiScore").className = "ai-score " + (score <= 25 ? "good" : score <= 55 ? "mid" : "bad");
+    $("aiLabel").textContent = data.label + (data.combined ? " (комбо)" : "");
+    $("aiBar").style.width = score + "%";
+
+    const feat = data.features || {};
+    if (data.combined) {
+      feat["эвристики"] = data.heuristic_score;
+      feat["LLM"] = data.llm_score;
+    }
+    $("aiFeatures").innerHTML = Object.entries(feat).map(([k, v]) =>
+      `<div>${k}: <b>${v}</b></div>`
+    ).join("");
+    $("aiNotes").innerHTML = (data.notes || []).map(n => `<li>${n}</li>`).join("");
+
+    // сразу рисуем heatmap
+    await renderHeatmap(text);
+
+    $("statusText").textContent = `🎯 Точная: ${score}/100 — ${data.label}`;
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
+
+// === Heatmap ===
+async function renderHeatmap(text) {
+  try {
+    const res = await fetch(api("/paragraph-heatmap"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    if (data.error) return;
+    if (!data.paragraphs || !data.paragraphs.length) return;
+
+    const list = $("heatmapList");
+    list.innerHTML = data.paragraphs.map(p => `
+      <div class="heatmap-item ${p.level}" data-idx="${p.index}">
+        <div class="hm-row">
+          <span class="hm-num">Абзац ${p.index + 1} · ${p.words} слов</span>
+          <span class="hm-score">${p.score}/100</span>
+        </div>
+        <div class="hm-text">${escapeHtml(p.text)}</div>
+      </div>
+    `).join("");
+
+    $("heatmapStats").textContent = `${data.paragraphs.length} абзацев`;
+    $("heatmapView").classList.add("on");
+
+    list.querySelectorAll(".heatmap-item").forEach(el => {
+      el.onclick = () => {
+        const idx = parseInt(el.dataset.idx);
+        // выделяем абзац в textarea
+        const paragraphs = input.value.split(/\n\s*\n/);
+        let pos = 0;
+        for (let i = 0; i < idx; i++) pos += paragraphs[i].length + 2;
+        input.focus();
+        input.setSelectionRange(pos, pos + (paragraphs[idx] || "").length);
+      };
+    });
+  } catch (e) { console.error("heatmap:", e); }
+}
+
+$("heatmapCloseBtn").onclick = () => $("heatmapView").classList.remove("on");
+
+// === Детальный отчёт ===
+$("reportBtn").onclick = async () => {
+  const text = input.value || output.value;
+  if (!text) { $("statusText").textContent = "нет текста для анализа"; return; }
+  showOverlay("Готовлю отчёт…");
+  try {
+    const res = await fetch(api("/report"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const r = await res.json();
+    if (r.error) throw new Error(r.error);
+
+    const c = r.combined || {};
+    let html = `
+      <div class="report-section">
+        <h4>Итог</h4>
+        <ul>
+          <li><b>${c.score}/100</b> — ${c.label || "—"}</li>
+          ${c.combined ? `<li>Эвристики: ${c.heuristic_score} · LLM: ${c.llm_score}</li>` : ""}
+          <li>Найдено ИИ-штампов: ${r.phrases_count}</li>
+          <li>Абзацев проанализировано: ${(r.heatmap && r.heatmap.total) || 0}</li>
+        </ul>
+      </div>
+    `;
+
+    if (r.top_patterns && r.top_patterns.length) {
+      html += `<div class="report-section"><h4>Топ ИИ-штампов</h4><ul>`;
+      r.top_patterns.slice(0, 10).forEach(p => {
+        html += `<li>${escapeHtml(p.name)} — <b>${p.count}</b> раз</li>`;
+      });
+      html += `</ul></div>`;
+    }
+
+    if (r.examples && r.examples.length) {
+      html += `<div class="report-section"><h4>Примеры из текста</h4><ul>`;
+      r.examples.slice(0, 8).forEach(ex => {
+        html += `<li>
+          <span class="ex-label">${escapeHtml(ex.label)}</span><br>
+          «${escapeHtml(ex.phrase)}»<br>
+          <small style="color:var(--muted)">${escapeHtml(ex.context)}</small>
+        </li>`;
+      });
+      html += `</ul></div>`;
+    }
+
+    if (r.recommendations && r.recommendations.length) {
+      html += `<div class="report-section"><h4>Рекомендации</h4><ul>`;
+      r.recommendations.forEach(rec => {
+        html += `<li class="reco">✓ ${escapeHtml(rec)}</li>`;
+      });
+      html += `</ul></div>`;
+    }
+
+    $("reportBody").innerHTML = html;
+    $("reportPanel").classList.add("on");
+    $("reportPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("statusText").textContent = "отчёт готов";
+  } catch (e) {
+    console.error(e);
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
+
+$("reportCloseBtn").onclick = () => $("reportPanel").classList.remove("on");
+
+$("reportPdfBtn").onclick = async () => {
+  const text = input.value || output.value;
+  if (!text) return;
+  showOverlay("Собираю PDF…");
+  try {
+    const res = await fetch(api("/report-pdf"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    if (!res.ok) throw new Error("не удалось создать PDF");
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ai-cleaner-report.pdf";
+    a.click();
+    $("statusText").textContent = "отчёт сохранён в PDF";
+  } catch (e) {
+    $("statusText").textContent = "ошибка: " + e.message;
+  } finally {
+    hideOverlay();
+  }
+};
+
+// === Сравнение до/после ===
+let lastCheckedBefore = null;
+
+async function checkAndCompare(text, label) {
+  try {
+    const res = await fetch(api("/check-ai-combined"), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    return data.score;
+  } catch { return null; }
+}
+
+// Запоминаем «до» после обычной проверки
+const origCheckAi = $("checkAiBtn").onclick;
+$("checkAiBtn").onclick = async (e) => {
+  const textBefore = input.value;
+  lastCheckedBefore = await checkAndCompare(textBefore, "before");
+  if (origCheckAi) await origCheckAi.call($("checkAiBtn"), e);
+};
+
+// Показываем сравнение после очистки/перефраза
+function showCompare(before, after) {
+  if (before == null || after == null) return;
+  $("cmpBefore").textContent = before;
+  $("cmpAfter").textContent = after;
+  const delta = after - before;
+  const el = $("cmpDelta");
+  if (delta < 0) {
+    el.textContent = `▼ Улучшение на ${Math.abs(delta)} баллов`;
+    el.className = "compare-delta down";
+  } else if (delta > 0) {
+    el.textContent = `▲ Ухудшение на ${delta} баллов`;
+    el.className = "compare-delta up";
+  } else {
+    el.textContent = "Без изменений";
+    el.className = "compare-delta";
+  }
+  $("compareView").classList.add("on");
+}
+
+// Хук в cleanBtn
+const origClean = $("cleanBtn").onclick;
+$("cleanBtn").onclick = async (e) => {
+  const before = lastCheckedBefore ?? await checkAndCompare(input.value);
+  if (origClean) await origClean.call($("cleanBtn"), e);
+  const after = await checkAndCompare(output.value);
+  showCompare(before, after);
+};
+
+// Хук в paraphraseBtn
+const origPar = $("paraphraseBtn").onclick;
+$("paraphraseBtn").onclick = async (e) => {
+  const before = lastCheckedBefore ?? await checkAndCompare(output.value || input.value);
+  if (origPar) await origPar.call($("paraphraseBtn"), e);
+  const after = await checkAndCompare(output.value);
+  showCompare(before, after);
+};
+
 // === Управление Ollama ===
 const ollamaSetup = document.getElementById("ollamaSetup");
 const ollamaActionBtn = document.getElementById("ollamaActionBtn");
@@ -1267,6 +1623,8 @@ async function loadFile(file) {
       $("paraphraseLlmBtn").disabled = false;
       $("checkAiLlmBtn").disabled = false;
       $("paraphraseLlmBtn").disabled = false;
+      $("checkAiCombinedBtn").disabled = false;
+      $("reportBtn").disabled = false;
     } catch (e) {
       console.error(e);
       $("statusText").textContent = "ошибка Word: " + e.message;
@@ -1289,6 +1647,8 @@ async function loadFile(file) {
       $("paraphraseBtn").disabled = false;
       $("checkAiLlmBtn").disabled = false;
       $("paraphraseLlmBtn").disabled = false;
+      $("checkAiCombinedBtn").disabled = false;
+      $("reportBtn").disabled = false;
       setTimeout(() => {
         updateHighlights();
         updateWordCount();
@@ -1322,6 +1682,8 @@ async function loadFile(file) {
       $("checkAiBtn").disabled = false;
       $("paraphraseBtn").disabled = false;
       $("checkAiLlmBtn").disabled = false;
+      $("checkAiCombinedBtn").disabled = false;
+      $("reportBtn").disabled = false;
       $("paraphraseLlmBtn").disabled = false;
       setTimeout(() => {
         updateHighlights();

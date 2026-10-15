@@ -301,37 +301,110 @@ def diff_words_html(before: str, after: str) -> dict:
 
 # Слова и обороты, часто встречающиеся в русскоязычном ИИ-тексте
 AI_PATTERNS = [
-    (r"чем\s+[^,.!?]{2,40},\s*тем\s", 5, "«чем…, тем…»"),
+    # === Основные конструкции ИИ ===
+    (r"чем\s+[^,.!?]{2,40},\s*тем\s", 4, "«чем…, тем…»"),
     (r"\bне\s+прост[оа][йа]?\s+[^,.!?]{2,30},?\s+а\s+", 5, "«не просто X, а Y»"),
     (r"\bне\s+столько\s+[^,.!?]{2,30},?\s+сколько\b", 5, "«не столько X, сколько Y»"),
     (r"\bне\s+только\s+[^,.!?]{2,30},?\s+но\s+и\b", 4, "«не только X, но и Y»"),
     (r"\bэто\s+не\s+[а-яё]+,\s*а\s+[а-яё]+", 5, "«это не X, а Y»"),
     (r"\bперестал\s+быть\s+просто\b", 5, "«перестал быть просто…»"),
     (r"\bпревратил(ся|ась|ось)\s+в\b", 3, "«превратился в»"),
-    (r"\bот\s+[а-яё]{4,}\s+до\s+[а-яё]{4,}", 4, "«от X до Y»"),
+    (r"\bот\s+[а-яё]{4,}\s+до\s+[а-яё]{4,}", 3, "«от X до Y»"),
     (r"\bи\s+в\s+этом\s+(его|её|их|наш|ваш|весь|вся|всё)\b", 6, "«и в этом его…»"),
     (r"\bвыбор\s+остаётся\s+за\b", 5, "«выбор остаётся за…»"),
     (r"\bответ,?\s+(вероятно|возможно|очевидно|прост)\b", 5, "«ответ, вероятно…»"),
     (r"\bбудущее\s+\S+\s+зависит\b", 5, "«будущее X зависит…»"),
     (r"\bглавн[а-яё]+\s+(урок|вывод|идея|мысль|принцип|вопрос)\b", 5, "«главный урок…»"),
-    (r"\bсегодня\s+же\b", 5, "«сегодня же»"),
-    (r"\bи\s+главное\b", 5, "«и главное»"),
+    (r"\bсегодня\s+же\b", 4, "«сегодня же»"),
+    (r"\bи\s+главное\b", 4, "«и главное»"),
+    (r"\bничего\s+не\s+надо\s+менять\b", 3, "«ничего не надо менять»"),
+
+    # === Вводные клише ===
     (r"\bоднако\b", 2, "«однако»"),
     (r"\bболее\s+того\b", 3, "«более того»"),
+    (r"\bкроме\s+того\b", 2, "«кроме того»"),
     (r"\bтаким\s+образом\b", 3, "«таким образом»"),
     (r"\bв\s+свою\s+очередь\b", 3, "«в свою очередь»"),
     (r"\bв\s+конечном\s+счёте\b", 3, "«в конечном счёте»"),
     (r"\bименно\s+поэтому\b", 4, "«именно поэтому»"),
-    (r"\bследует\s+(отметить|подчеркнуть|заметить)\b", 4, "«следует отметить»"),
-    (r"\bважно\s+(отметить|понимать|помнить|подчеркнуть)\b", 5, "«важно отметить»"),
-    (r"\bстоит\s+(отметить|подчеркнуть|заметить)\b", 4, "«стоит отметить»"),
-    (r"\bиграет\s+(важную|ключевую|значимую)\s+роль\b", 5, "«играет важную роль»"),
+    (r"\bв\s+связи\s+с\s+этим\b", 3, "«в связи с этим»"),
+    (r"\bв\s+заключение\b", 3, "«в заключение»"),
+    (r"\bподводя\s+итог\b", 4, "«подводя итог»"),
+    (r"\bв\s+целом\b", 2, "«в целом»"),
+    (r"\bкак\s+правило\b", 3, "«как правило»"),
+    (r"\bв\s+частности\b", 2, "«в частности»"),
+    (r"\bнаряду\s+с\s+этим\b", 3, "«наряду с этим»"),
+    (r"\bвместе\s+с\s+тем\b", 3, "«вместе с тем»"),
+    (r"\bпо\s+сути\b", 2, "«по сути»"),
+    (r"\bв\s+свою\s+очередь,?\s", 3, "«в свою очередь»"),
+
+    # === Псевдо-важность ===
+    (r"\bважно\s+(отметить|понимать|помнить|подчеркнуть|учитывать)\b", 5, "«важно отметить»"),
+    (r"\bстоит\s+(отметить|подчеркнуть|заметить|учитывать)\b", 4, "«стоит отметить»"),
+    (r"\bследует\s+(отметить|подчеркнуть|заметить|учитывать)\b", 4, "«следует отметить»"),
+    (r"\bнеобходимо\s+(отметить|подчеркнуть|учитывать|понимать)\b", 4, "«необходимо отметить»"),
+    (r"\bиграет\s+(важную|ключевую|значимую|немаловажную)\s+роль\b", 5, "«играет важную роль»"),
+    (r"\bимеет\s+(важное|ключевое|особое|принципиальное)\s+значение\b", 5, "«имеет важное значение»"),
+    (r"\bзанимает\s+(особое|важное|центральное)\s+место\b", 4, "«занимает особое место»"),
+    (r"\bобладает\s+рядом\s+преимуществ\b", 4, "«обладает рядом преимуществ»"),
+    (r"\bоткрывает\s+новые\s+(возможности|горизонты|перспективы)\b", 5, "«открывает новые возможности»"),
+    (r"\bдаёт\s+возможность\b", 3, "«даёт возможность»"),
+    (r"\bпозволяет\s+(нам|нам\s+лучше|более)\b", 3, "«позволяет лучше»"),
+
+    # === Абстрактные обороты ===
     (r"\bв\s+современном\s+мире\b", 5, "«в современном мире»"),
+    (r"\bв\s+современных\s+условиях\b", 5, "«в современных условиях»"),
+    (r"\bв\s+условиях\s+(современности|неопределённости|глобализации)\b", 5, "«в условиях…»"),
     (r"\bна\s+сегодняшний\s+день\b", 3, "«на сегодняшний день»"),
+    (r"\bв\s+настоящее\s+время\b", 3, "«в настоящее время»"),
+    (r"\bна\s+данный\s+момент\b", 3, "«на данный момент»"),
     (r"\bпредставляет\s+собой\b", 3, "«представляет собой»"),
-    (r"\bявляется\s+(ключевым|важным|основным|одним)\b", 3, "«является ключевым»"),
+    (r"\bявляется\s+(ключевым|важным|основным|одним|центральным)\b", 3, "«является ключевым»"),
+    (r"\bвыступает\s+в\s+качестве\b", 3, "«выступает в качестве»"),
+    (r"\bносит\s+(системный|комплексный|целостный)\s+характер\b", 4, "«носит комплексный характер»"),
     (r"\bнезаметно\s+стал\b", 4, "«незаметно стал»"),
     (r"\b(формируется|складывается)\s+(современн|нов|целостн)", 3, "«формируется современная…»"),
+    (r"\bв\s+рамках\s+данного\b", 4, "«в рамках данного»"),
+    (r"\bв\s+контексте\b", 3, "«в контексте»"),
+    (r"\bв\s+свете\s+вышесказанного\b", 5, "«в свете вышесказанного»"),
+
+    # === Триады и перечисления ===
+    (r"[а-яё]{4,},\s+[а-яё]{4,}\s+и\s+[а-яё]{4,}", 3, "триада X, Y, Z"),
+    (r"[а-яё]{4,},\s+[а-яё]{4,},\s+[а-яё]{4,}", 3, "перечисление из трёх"),
+
+    # === Тире и пунктуация ===
+    (r"—", 1, "длинное тире"),
+    (r"\s+;\s+", 2, "точка с запятой внутри предложения"),
+
+    # === Модальность ===
+    (r"\b(важно|необходимо|следует|нужно|стоит|должен|может|позволяет)\b", 1, "модальный глагол"),
+
+    # === Абстрактные существительные ===
+    (r"\b(развитие|совершенствование|оптимизация|трансформация|модернизация)\b", 3, "абстрактное «развитие»"),
+    (r"\b(технология|технологии|инновация|инновации)\b", 2, "«технологии»"),
+    (r"\b(возможность|возможности|потенциал|перспектива|перспективы)\b", 2, "«возможности»"),
+    (r"\b(эффективность|результативность|продуктивность)\b", 3, "«эффективность»"),
+    (r"\b(подход|подходы|методология|парадигма)\b", 3, "«подход»"),
+
+    # === Процессуальность ===
+    (r"\bосуществля(ется|ются|ет|ют)\b", 3, "«осуществляется»"),
+    (r"\bпроводи(тся|тся|ть)\b", 2, "«проводится»"),
+    (r"\bреализу(ется|ются|ет)\b", 3, "«реализуется»"),
+    (r"\bобеспечива(ется|ют|ет)\b", 3, "«обеспечивается»"),
+    (r"\bформиру(ется|ют|ет)\b", 2, "«формируется»"),
+    (r"\bсозда(ётся|ются|ет)\b", 2, "«создаётся»"),
+
+    # === Псевдо-конкретика ===
+    (r"\bразличн[а-яё]+\s+аспект", 3, "«различные аспекты»"),
+    (r"\bширокий\s+спектр\b", 3, "«широкий спектр»"),
+    (r"\bключев[а-яё]+\s+(фактор|аспект|элемент)\b", 3, "«ключевой фактор»"),
+    (r"\bосновн[а-яё]+\s+(цель|задача|принцип|подход)\b", 2, "«основная цель»"),
+    (r"\bряд\s+(особенностей|факторов|преимуществ)\b", 3, "«ряд особенностей»"),
+
+    # === «Туманные» начала ===
+    (r"^\s*итак", 3, "«итак» в начале"),
+    (r"^\s*в\s+данной\s+статье", 5, "«в данной статье»"),
+    (r"^\s*данн[а-яё]+\s+(статья|работа|исследование)\b", 4, "«данная статья»"),
 ]
 
 ABSTRACT_STEMS = [
@@ -548,6 +621,46 @@ def check_ai_score(text: str) -> dict:
         },
         "notes": notes,
     }
+
+def check_ai_combined(text: str) -> dict:
+    """Комбинированная оценка: эвристики + LLM (если доступна)."""
+    heuristic = check_ai_score(text)
+
+    result = {
+        "available": True,
+        "score": heuristic.get("score", 0),
+        "label": heuristic.get("label", "—"),
+        "features": heuristic.get("features", {}),
+        "notes": heuristic.get("notes", []),
+        "heuristic_score": heuristic.get("score", 0),
+        "llm_score": None,
+        "combined": False,
+    }
+
+    # Пытаемся получить оценку от LLM
+    if HAS_OLLAMA:
+        try:
+            llm = check_ai_with_llm(text)
+            if llm.get("available") and not llm.get("error"):
+                llm_score = llm.get("score", 0)
+                result["llm_score"] = llm_score
+                # вес: LLM 0.55, эвристики 0.45
+                combined = round(0.45 * heuristic.get("score", 0) + 0.55 * llm_score)
+                result["score"] = combined
+                result["combined"] = True
+
+                if combined <= 25:      result["label"] = "скорее человек"
+                elif combined <= 50:    result["label"] = "смешанный"
+                elif combined <= 75:    result["label"] = "есть следы ИИ"
+                else:                   result["label"] = "сильные следы ИИ"
+
+                result["notes"].insert(0,
+                    f"Комбинированный балл: эвристики {heuristic.get('score',0)} + "
+                    f"LLM {llm_score} → {combined}")
+        except Exception as e:
+            result["notes"].append(f"LLM-оценка недоступна: {e}")
+
+    return result
 
 def check_ai_with_llm(text: str) -> dict:
     """Проверка ИИ через локальную модель Ollama. Точнее эвристик, но медленнее."""
@@ -840,6 +953,180 @@ def find_ai_phrases(text: str) -> dict:
             last_end = f["end"]
 
     return {"phrases": cleaned, "count": len(cleaned)}
+
+def paragraph_heatmap(text: str) -> dict:
+    """Heatmap: оценка каждого абзаца по эвристикам."""
+    if not text:
+        return {"paragraphs": []}
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    out = []
+    for i, p in enumerate(paragraphs):
+        if len(p) < 30:
+            out.append({
+                "index": i, "text": p[:200], "score": 0,
+                "level": "short", "words": len(p.split()),
+            })
+            continue
+        sub = check_ai_score(p)
+        score = sub.get("score", 0)
+        if score <= 25:      level = "low"
+        elif score <= 50:    level = "mid"
+        elif score <= 75:    level = "high"
+        else:                level = "critical"
+        out.append({
+            "index": i,
+            "text": p[:300] + ("…" if len(p) > 300 else ""),
+            "score": score,
+            "level": level,
+            "words": len(p.split()),
+        })
+
+    return {"paragraphs": out, "total": len(out)}
+
+def generate_report(text: str) -> dict:
+    """Генерирует детальный отчёт: баллы, топ-причины, примеры, рекомендации."""
+    combined = check_ai_combined(text)
+    heuristic = check_ai_score(text)
+    phrases = find_ai_phrases(text)
+    heatmap = paragraph_heatmap(text)
+
+    # Топ-причины (из notes эвристик)
+    top_reasons = []
+    for n in heuristic.get("notes", [])[:8]:
+        if n.startswith("Паттерны ИИ"):
+            # Разбираем паттерны отдельно
+            continue
+        top_reasons.append(n)
+
+    # Группируем паттерны
+    pattern_groups = {}
+    low = text.lower()
+    for rx, weight, name in AI_PATTERNS:
+        matches = len(re.findall(rx, low))
+        if matches > 0:
+            pattern_groups[name] = pattern_groups.get(name, 0) + matches
+
+    top_patterns = sorted(pattern_groups.items(), key=lambda x: -x[1])[:10]
+
+    # Примеры из текста
+    examples = []
+    for p in phrases.get("phrases", [])[:10]:
+        start = max(0, p["start"] - 30)
+        end = min(len(text), p["end"] + 30)
+        context = text[start:end].replace("\n", " ")
+        examples.append({
+            "phrase": p["text"],
+            "label": p["label"],
+            "context": "…" + context.strip() + "…",
+        })
+
+    # Рекомендации
+    recommendations = []
+    if pattern_groups.get("«однако»", 0) > 2:
+        recommendations.append("Заменить часть «однако» на «но» или убрать совсем")
+    if pattern_groups.get("«важно отметить»", 0) > 0:
+        recommendations.append("Убрать «важно отметить» — это штамп")
+    if pattern_groups.get("«таким образом»", 0) > 1:
+        recommendations.append("Заменить «таким образом» на «значит»")
+    if pattern_groups.get("длинное тире", 0) > 5:
+        recommendations.append("Заменить часть длинных тире на запятые/точки")
+    if combined.get("score", 0) > 50:
+        recommendations.append("Прогнать через 🔄 Перефразировать или 🤖 LLM-перефраз")
+    if heatmap.get("total", 0) > 5:
+        high = sum(1 for p in heatmap["paragraphs"] if p["level"] in ("high", "critical"))
+        if high > 0:
+            recommendations.append(f"Переписать {high} самых «ИИ-шных» абзацев вручную")
+
+    return {
+        "combined": combined,
+        "heuristic": heuristic,
+        "phrases_count": phrases.get("count", 0),
+        "heatmap": heatmap,
+        "top_patterns": [{"name": k, "count": v} for k, v in top_patterns],
+        "examples": examples,
+        "recommendations": recommendations,
+        "timestamp": None,  # заполним в endpoint
+    }
+
+
+def report_to_pdf(report: dict, original_text: str) -> bytes:
+    """Генерирует PDF с отчётом."""
+    if not HAS_FPDF:
+        raise RuntimeError("fpdf2 не установлен")
+
+    pdf = FPDF(format="A4", unit="mm")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    font_path = find_cyrillic_font()
+    if font_path:
+        try:
+            pdf.add_font("main", "", font_path)
+        except TypeError:
+            pdf.add_font("main", "", font_path, uni=True)
+        pdf.set_font("main", size=11)
+    else:
+        pdf.set_font("Helvetica", size=11)
+
+    def _line(text, size=11, style=""):
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font_size(size)
+        pdf.multi_cell(0, 6, text if text else " ")
+
+    combined = report.get("combined", {})
+    score = combined.get("score", 0)
+
+    _line("AI Cleaner — Отчёт анализа", size=18)
+    pdf.ln(3)
+    _line(f"Итоговый балл: {score} / 100", size=14)
+    _line(f"Вердикт: {combined.get('label', '—')}", size=12)
+    pdf.ln(2)
+
+    if combined.get("combined"):
+        _line(f"Эвристики: {combined.get('heuristic_score', 0)} | "
+              f"LLM: {combined.get('llm_score', 0)}", size=11)
+        pdf.ln(2)
+
+    _line("Топ причин:", size=13)
+    for n in report.get("heuristic", {}).get("notes", [])[:10]:
+        _line("• " + n, size=10)
+    pdf.ln(3)
+
+    patterns = report.get("top_patterns", [])
+    if patterns:
+        _line("Найденные ИИ-штампы:", size=13)
+        for p in patterns[:15]:
+            _line(f"• {p['name']} — {p['count']} раз", size=10)
+        pdf.ln(3)
+
+    examples = report.get("examples", [])
+    if examples:
+        _line("Примеры из текста:", size=13)
+        for ex in examples[:8]:
+            _line(f"→ «{ex['phrase']}» ({ex['label']})", size=10)
+            _line(f"   Контекст: {ex['context']}", size=9)
+            pdf.ln(1)
+        pdf.ln(2)
+
+    recs = report.get("recommendations", [])
+    if recs:
+        _line("Рекомендации:", size=13)
+        for r in recs:
+            _line("• " + r, size=10)
+        pdf.ln(3)
+
+    heatmap = report.get("heatmap", {})
+    if heatmap.get("paragraphs"):
+        _line("Карта по абзацам:", size=13)
+        for p in heatmap["paragraphs"][:25]:
+            _line(f"Абзац {p['index']+1}: {p['score']}/100 "
+                  f"({p['level']}, {p['words']} слов)", size=10)
+
+    out = pdf.output(dest="S")
+    if isinstance(out, str):
+        out = out.encode("latin-1")
+    return bytes(out)
 
 # =============================================================
 #  РАБОТА С PDF
@@ -1455,6 +1742,47 @@ class Handler(BaseHTTPRequestHandler):
                 data = json.loads(raw)
                 result = find_ai_phrases(data.get("text", ""))
                 self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})        
+
+        elif self.path == "/check-ai-combined":
+            try:
+                data = json.loads(raw)
+                result = check_ai_combined(data.get("text", ""))
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/paragraph-heatmap":
+            try:
+                data = json.loads(raw)
+                result = paragraph_heatmap(data.get("text", ""))
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/report":
+            try:
+                data = json.loads(raw)
+                text = data.get("text", "")
+                result = generate_report(text)
+                import datetime
+                result["timestamp"] = datetime.datetime.now().isoformat()
+                self._json(200, result)
+            except Exception as e:
+                traceback.print_exc()
+                self._json(500, {"error": str(e)})
+
+        elif self.path == "/report-pdf":
+            try:
+                data = json.loads(raw)
+                text = data.get("text", "")
+                report = generate_report(text)
+                pdf_bytes = report_to_pdf(report, text)
+                self._send(200, pdf_bytes, "application/pdf")
             except Exception as e:
                 traceback.print_exc()
                 self._json(500, {"error": str(e)})        
