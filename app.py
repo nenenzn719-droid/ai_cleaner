@@ -68,6 +68,48 @@ LOOKALIKES = {
 }
 LOOKALIKE_MAP = str.maketrans(LOOKALIKES)
 
+# Вариационные селекторы и эмодзи-модификаторы
+VARIATION_SELECTORS = re.compile("[\ufe00-\ufe0f]")
+EMOJI_MODIFIERS = re.compile("[\U0001F3FB-\U0001F3FF]")
+# Управляющие символы C0/C1 (кроме \n, \t)
+CONTROL_CHARS = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+
+def clean_safe_aggressive(text: str) -> str:
+    """Безопасная агрессивная очистка.
+    Чистит контрольные символы, схлопывает пробелы и знаки,
+    НЕ трогает русские буквы."""
+    if not text:
+        return text
+    t = text
+
+    # 1. Вариационные селекторы и эмодзи-модификаторы
+    t = VARIATION_SELECTORS.sub("", t)
+    t = EMOJI_MODIFIERS.sub("", t)
+
+    # 2. Управляющие символы (кроме \n, \t)
+    t = CONTROL_CHARS.sub("", t)
+
+    # 3. Множественные пробелы и табы → один
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r"\s+([,.!?;:])", r"\1", t)
+
+    # 4. Многоточия больше 3 → три
+    t = re.sub(r"\.{4,}", "...", t)
+
+    # 5. Множественные знаки → один
+    t = re.sub(r"!{2,}", "!", t)
+    t = re.sub(r"\?{2,}", "?", t)
+    t = re.sub(r"([!?])\s*[!?]+", r"\1", t)
+
+    # 6. Множественные переводы строк → максимум 2
+    t = re.sub(r"\n{3,}", "\n\n", t)
+
+    # 7. Обрезка пробелов в строках
+    t = "\n".join(line.strip() for line in t.split("\n"))
+    t = t.strip()
+
+    return t
 
 def analyze(text: str) -> dict:
     return {
@@ -77,13 +119,15 @@ def analyze(text: str) -> dict:
     }
 
 
-def clean_text(text: str, aggressive: bool = False) -> dict:
+def clean_text(text: str, aggressive: bool = False, safe_aggressive: bool = False) -> dict:
     before = analyze(text)
     t = INVISIBLE.sub("", text)
     t = unicodedata.normalize("NFKC", t)
     t = t.translate(TYPO_MAP)
     if aggressive:
         t = t.translate(LOOKALIKE_MAP)
+    if safe_aggressive:
+        t = clean_safe_aggressive(t)
     t = re.sub(r"[ \t]+", " ", t)
     t = re.sub(r" *\n *", "\n", t)
     t = t.strip()
@@ -1232,6 +1276,7 @@ def build_pdf(text: str) -> bytes:
 
 def clean_pdf_preserve(pdf_bytes: bytes,
                        aggressive: bool = False,
+                       safe_aggressive: bool = False,
                        font_preset: str = "Auto",
                        size_override=None) -> bytes:
     """Чистит PDF, максимально сохраняя структуру."""
@@ -1255,6 +1300,8 @@ def clean_pdf_preserve(pdf_bytes: bytes,
                     cleaned = cleaned.translate(TYPO_MAP)
                     if aggressive:
                         cleaned = cleaned.translate(LOOKALIKE_MAP)
+                    if safe_aggressive:
+                        cleaned = clean_safe_aggressive(cleaned)
                     if cleaned != original:
                         to_clean.append((span, cleaned, original))
 
@@ -1350,7 +1397,7 @@ def extract_docx_text(data: bytes) -> str:
         parts.append(para.text)
     return "\n".join(parts)
 
-def clean_docx_preserve(data: bytes, aggressive: bool = False) -> bytes:
+def clean_docx_preserve(data: bytes, aggressive: bool = False, safe_aggressive: bool = False) -> bytes:
     """Чистит .docx, сохраняя структуру максимально: абзацы, таблицы,
     колонтитулы, сноски, комментарии, стили."""
     if not HAS_DOCX:
@@ -1367,6 +1414,8 @@ def clean_docx_preserve(data: bytes, aggressive: bool = False) -> bytes:
         t = t.translate(TYPO_MAP)
         if aggressive:
             t = t.translate(LOOKALIKE_MAP)
+        if safe_aggressive:
+            t = clean_safe_aggressive(t)
         return t
 
     def _clean_runs_in_paragraph(para):
@@ -1430,7 +1479,7 @@ TEXT_EXTS = {
 }
 
 
-def batch_clean(files: list, aggressive: bool = False) -> tuple:
+def batch_clean(files: list, aggressive: bool = False, safe_aggressive: bool = False) -> tuple:
     """files: [{name, data (base64)}].
     Возвращает (zip_bytes, report)."""
     out = io.BytesIO()
@@ -1448,18 +1497,18 @@ def batch_clean(files: list, aggressive: bool = False) -> tuple:
             ext = Path(name).suffix.lower()
             try:
                 if ext == ".pdf":
-                    result = clean_pdf_preserve(raw, aggressive=aggressive)
+                    result = clean_pdf_preserve(raw, aggressive=aggressive, safe_aggressive=safe_aggressive)
                     zf.writestr(f"clean/{name}", result)
                     report.append({"name": name, "status": "ok", "type": "pdf"})
 
                 elif ext == ".docx":
-                    result = clean_docx_preserve(raw, aggressive=aggressive)
+                    result = clean_docx_preserve(raw, aggressive=aggressive, safe_aggressive=safe_aggressive)
                     zf.writestr(f"clean/{name}", result)
                     report.append({"name": name, "status": "ok", "type": "docx"})
 
                 elif ext in TEXT_EXTS:
                     text = raw.decode("utf-8", errors="replace")
-                    cleaned = clean_text(text, aggressive=aggressive)["cleaned"]
+                    cleaned = clean_text(text, aggressive=aggressive, safe_aggressive=safe_aggressive)["cleaned"]
                     zf.writestr(f"clean/{name}", cleaned.encode("utf-8"))
                     report.append({"name": name, "status": "ok", "type": "text"})
 
@@ -1546,7 +1595,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/clean":
             try:
                 data = json.loads(raw)
-                result = clean_text(data.get("text", ""), aggressive=bool(data.get("aggressive", False)))
+                result = clean_text(
+                    data.get("text", ""),
+                    aggressive=bool(data.get("aggressive", False)),
+                    safe_aggressive=bool(data.get("safe_aggressive", False)),
+                )
                 self._json(200, result)
             except Exception as e:
                 traceback.print_exc()
@@ -1697,8 +1750,9 @@ class Handler(BaseHTTPRequestHandler):
                 data = json.loads(raw)
                 files = data.get("files", [])
                 aggressive = bool(data.get("aggressive", False))
+                safe_aggressive = bool(data.get("safe_aggressive", False))
                 print(f"[batch] получено файлов: {len(files)}")
-                zip_bytes, report = batch_clean(files, aggressive)
+                zip_bytes, report = batch_clean(files, aggressive, safe_aggressive)
                 print(f"[batch] zip: {len(zip_bytes)} байт, "
                       f"ok={sum(1 for r in report if r['status']=='ok')}, "
                       f"err={sum(1 for r in report if r['status']=='error')}, "
@@ -1940,7 +1994,7 @@ def pull_model(model: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.5.1"
 
 def check_for_update() -> dict:
     """Проверяет GitHub Releases на новую версию."""

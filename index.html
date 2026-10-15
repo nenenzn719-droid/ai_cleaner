@@ -624,6 +624,9 @@
   <label class="check" title="Заменять кириллические двойники латиницы — может ломать русский текст">
     <input type="checkbox" id="aggressive"> агрессивный режим
   </label>
+    <label class="check" title="Глубокая очистка: убирает управляющие символы, вариационные селекторы, схлопывает пробелы и повторяющиеся знаки. Безопасна для русского текста.">
+    <input type="checkbox" id="safeAggressive" checked> безопасная агрессия
+  </label>
   <label class="opt-label">
     Шрифт:
     <select id="fontPreset" class="select">
@@ -1171,7 +1174,8 @@ document.getElementById("batchInput").onchange = async (e) => {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
         files: encoded,
-        aggressive: $("aggressive").checked
+        aggressive: $("aggressive").checked,
+        safe_aggressive: $("safeAggressive").checked,
       })
     });
     if (!res.ok) {
@@ -1746,7 +1750,11 @@ $("cleanBtn").onclick = async () => {
     const res = await fetch(api("/clean"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ text, aggressive: $("aggressive").checked })
+      body: JSON.stringify({
+        text,
+        aggressive: $("aggressive").checked,
+        safe_aggressive: $("safeAggressive").checked,
+      })
     });
     const data = await res.json();
     output.value = data.cleaned;
@@ -2061,6 +2069,7 @@ $("cleanPdfBtn").onclick = async () => {
       body: JSON.stringify({
         data: b64,
         aggressive: $("aggressive").checked,
+        safe_aggressive: $("safeAggressive").checked,
         font: $("fontPreset").value,
         size: $("sizePreset").value ? parseFloat($("sizePreset").value) : null,
       })
@@ -2189,6 +2198,7 @@ $("cleanDocxBtn").onclick = async () => {
       body: JSON.stringify({
         data: b64,
         aggressive: $("aggressive").checked,
+        safe_aggressive: $("safeAggressive").checked,
       })
     });
     if (!res.ok) {
